@@ -117,18 +117,36 @@ static void handle_releasedir(int connfd, uint64_t fh)
     send(connfd, &ret, sizeof(ret), 0);
 }
 
-static void handle_read(int connfd, const char *path, size_t size)
+static void handle_read(int connfd, const char *path, uint64_t fh, int flags, size_t size)
 {
-    //ToDo: Handle errors
-    
     int pipefd[2];
-    pipe(pipefd);
 
-    int fd = open(path, O_RDONLY);
+    // create a pipe and check for errors
+    if (pipe(pipefd) == -1)
+    {
+        perror("pipe");
+        exit(EXIT_FAILURE);
+    }
 
-    int sp = splice(fd, NULL, pipefd[1], NULL, size, SPLICE_F_MOVE);
+    // Move data from the file to the write end of the pipe
+    int sp = splice(fh, NULL, pipefd[1], NULL, size, SPLICE_F_MOVE);
+    if (sp == -1)
+    {
+        perror("splice");
+        exit(EXIT_FAILURE);
+    }
 
+    // Move data/pages from the read end of the pipe to the socket
     sp = splice(pipefd[0], NULL, connfd, NULL, sp, SPLICE_F_MOVE);
+    if (sp == -1)
+    {
+        perror("splice");
+        exit(EXIT_FAILURE);
+    }
+
+    // close(fd);
+    close(pipefd[1]);
+    close(pipefd[0]);
 }
 
 static void handle_request(int connfd, struct requests *request)
@@ -152,7 +170,7 @@ static void handle_request(int connfd, struct requests *request)
         break;
 
     case 4:
-        handle_read(connfd,request->path,request->size);
+        handle_read(connfd, request->path, request->fh, request->flags, request->size);
         break;
 
     case 5:
