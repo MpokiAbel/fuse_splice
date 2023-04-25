@@ -127,7 +127,11 @@ static void handle_read(int connfd, const char *path, uint64_t fh, int flags, si
         perror("pipe");
         exit(EXIT_FAILURE);
     }
-
+    printf("fh is : %ld",fh);
+    // if (fh == NULL)
+    // {
+    //     fh = open(path, O_RDONLY);
+    // }
     // Move data from the file to the write end of the pipe
     int sp = splice(fh, NULL, pipefd[1], NULL, size, SPLICE_F_MOVE);
     if (sp == -1)

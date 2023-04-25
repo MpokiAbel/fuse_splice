@@ -216,172 +216,172 @@ int stackfs__read(const char *path, char *buff, size_t size, off_t offset, struc
 
     return res;
 
-*/}
+*/
+}
 
-    int stackfs__readdir(const char *path, void *buff, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi, enum fuse_readdir_flags flags)
+int stackfs__readdir(const char *path, void *buff, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi, enum fuse_readdir_flags flags)
+{
+
+    (void)offset;
+    (void)fi;
+
+    // char full_path[PATH_MAX];
+
+    // sprintf(full_path, "%s%s", base_dir, path);
+    // printf("readdir: %s\n", path);
+    if (ENABLE_REMOTE)
     {
+        int sockfd = do_client_connect();
 
-        (void)offset;
-        (void)fi;
+        struct requests request;
+        struct server_response response;
+        strcpy(request.path, path);
+        request.type = 5;
 
-        // char full_path[PATH_MAX];
-
-        // sprintf(full_path, "%s%s", base_dir, path);
-        // printf("readdir: %s\n", path);
-        if (ENABLE_REMOTE)
+        if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         {
-            int sockfd = do_client_connect();
-
-            struct requests request;
-            struct server_response response;
-            strcpy(request.path, path);
-            request.type = 5;
-
-            if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
-            {
-                perror("send");
-                close(sockfd);
-                return -errno;
-            }
-
-            int n = 0, count = 1;
-
-            while (n < count)
-            {
-                recv(sockfd, &response, sizeof(response), 0);
-                filler(buff, response.path, &response.stat, 0, FUSE_FILL_DIR_PLUS);
-
-                n++;
-                if (n == 1)
-                {
-                    count = response.size - 1;
-                }
-            }
-
+            perror("send");
             close(sockfd);
+            return -errno;
         }
-        else
+
+        int n = 0, count = 1;
+
+        while (n < count)
         {
-            DIR *dp;
-            struct dirent *de;
-            dp = opendir(path);
-            if (dp == NULL)
-                return -errno;
+            recv(sockfd, &response, sizeof(response), 0);
+            filler(buff, response.path, &response.stat, 0, FUSE_FILL_DIR_PLUS);
 
-            while ((de = readdir(dp)) != NULL)
+            n++;
+            if (n == 1)
             {
-                struct stat st;
-
-                memset(&st, 0, sizeof(st));
-                st.st_ino = de->d_ino;
-                st.st_mode = de->d_type << 12;
-
-                if (filler(buff, de->d_name, &st, 0, FUSE_FILL_DIR_PLUS))
-                    break;
+                count = response.size - 1;
             }
         }
 
-        return 0;
+        close(sockfd);
+    }
+    else
+    {
+        DIR *dp;
+        struct dirent *de;
+        dp = opendir(path);
+        if (dp == NULL)
+            return -errno;
+
+        while ((de = readdir(dp)) != NULL)
+        {
+            struct stat st;
+
+            memset(&st, 0, sizeof(st));
+            st.st_ino = de->d_ino;
+            st.st_mode = de->d_type << 12;
+
+            if (filler(buff, de->d_name, &st, 0, FUSE_FILL_DIR_PLUS))
+                break;
+        }
     }
 
-    int stackfs__readlink(const char *path, char *buff, size_t size)
+    return 0;
+}
+
+int stackfs__readlink(const char *path, char *buff, size_t size)
+{
+    int ret;
+
+    if (ENABLE_REMOTE)
     {
-        int ret;
+        int sockfd = do_client_connect();
+        struct requests request;
+        strcpy(request.path, path);
+        request.type = 6;
+        request.size = size;
 
-        if (ENABLE_REMOTE)
+        if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         {
-            int sockfd = do_client_connect();
-            struct requests request;
-            strcpy(request.path, path);
-            request.type = 6;
-            request.size = size;
-
-            if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
-            {
-                perror("send");
-                close(sockfd);
-                return -errno;
-            }
-
-            recv(sockfd, buff, size, 0);
+            perror("send");
             close(sockfd);
+            return -errno;
         }
-        else
-        {
-            ret = readlink(path, buff, size - 1);
-            if (ret == -1)
-                return -errno;
 
-            buff[ret] = '\0';
-        }
-        return 0;
+        recv(sockfd, buff, size, 0);
+        close(sockfd);
     }
-
-    int stackfs__releasedir(const char *path, struct fuse_file_info *fi)
+    else
     {
-        int ret;
-        if (ENABLE_REMOTE)
+        ret = readlink(path, buff, size - 1);
+        if (ret == -1)
+            return -errno;
+
+        buff[ret] = '\0';
+    }
+    return 0;
+}
+
+int stackfs__releasedir(const char *path, struct fuse_file_info *fi)
+{
+    int ret;
+    if (ENABLE_REMOTE)
+    {
+        int sockfd = do_client_connect();
+
+        struct requests request;
+        strcpy(request.path, path);
+        request.fh = fi->fh;
+        request.type = 5;
+
+        if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         {
-            int sockfd = do_client_connect();
-
-            struct requests request;
-            strcpy(request.path, path);
-            request.fh = fi->fh;
-            request.type = 5;
-
-            if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
-            {
-                perror("send");
-                close(sockfd);
-                return -errno;
-            }
-
-            recv(sockfd, &ret, sizeof(ret), 0);
+            perror("send");
             close(sockfd);
+            return -errno;
         }
-        else
-        {
-            ret = closedir((DIR *)fi->fh);
-        }
-        return 0;
-    }
 
-    static void *stackfs__init(struct fuse_conn_info *conn, struct fuse_config *conf)
+        recv(sockfd, &ret, sizeof(ret), 0);
+        close(sockfd);
+    }
+    else
     {
-        (void)conf;
+        ret = closedir((DIR *)fi->fh);
+    }
+    return 0;
+}
+
+int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
+                      size_t size, off_t off, struct fuse_file_info *fi)
+{
+    struct fuse_bufvec *buf = (struct fuse_bufvec *)malloc(sizeof(struct fuse_bufvec));
+    *buf = FUSE_BUFVEC_INIT(size);
+    buf->buf[0].pos = off;
+    buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_SEEK;
+    buf->buf[0].fd = fi->fh;
+    *bufp = buf;
+
+    return 0;
+}
+
+static void *stackfs__init(struct fuse_conn_info *conn, struct fuse_config *conf)
+{
+    (void)conf;
+    if ((conn->capable & FUSE_CAP_SPLICE_WRITE) && (conn->capable & FUSE_CAP_SPLICE_MOVE) && (conn->capable & FUSE_CAP_SPLICE_READ))
         conn->want |= FUSE_CAP_SPLICE_READ | FUSE_CAP_SPLICE_WRITE | FUSE_CAP_SPLICE_MOVE;
-        // conn->capable |= FUSE_CAP_SPLICE_READ | FUSE_CAP_SPLICE_WRITE | FUSE_CAP_SPLICE_MOVE;
-        return NULL;
-    }
+    return NULL;
+}
 
-    /*int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
-                 size_t size, off_t off, struct fuse_file_info *fi)
-    {
+static struct fuse_operations stackfs__op = {
+    .init = stackfs__init,
+    .getattr = stackfs__getattr,
+    .opendir = stackfs__opendir,
+    .open = stackfs__open,
+    .read = stackfs__read,
+    .readdir = stackfs__readdir,
+    .readlink = stackfs__readlink,
+    // .read_buf = stackfs__read_buf,
 
-        struct fuse_bufvec *buf = (struct fuse_bufvec *)malloc(sizeof(struct fuse_bufvec));
+};
 
-        *buf = FUSE_BUFVEC_INIT(size);
-        buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_SEEK;
-        buf->buf[0].fd = fi->fh;
-        buf->buf[0].pos = off;
-        *bufp = buf;
-        return 0;
-    }
-        */
-    static struct fuse_operations stackfs__op = {
-        .init = stackfs__init,
-        .getattr = stackfs__getattr,
-        .opendir = stackfs__opendir,
-        .open = stackfs__open,
-        .read = stackfs__read,
-        .readdir = stackfs__readdir,
-        .readlink = stackfs__readlink,
-        .read_buf = stackfs__read_buf,
+int main(int argc, char *argv[])
+{
 
-    };
-
-    int main(int argc, char *argv[])
-    {
-
-        return fuse_main(argc, argv, &stackfs__op, NULL);
-    }
+    return fuse_main(argc, argv, &stackfs__op, NULL);
+}
