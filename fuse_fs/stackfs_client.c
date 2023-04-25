@@ -159,6 +159,7 @@ int stackfs__read(const char *path, char *buff, size_t size, off_t offset, struc
         request.flags = fi->flags;
         request.size = size;
 
+        // ToDo: Handle Errors
         if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         {
             perror("send");
@@ -166,10 +167,11 @@ int stackfs__read(const char *path, char *buff, size_t size, off_t offset, struc
             return -errno;
         }
 
+        // ToDo: Handle Errors
         res = recv(sockfd, buff, size, 0);
 
         close(sockfd);
-        }
+    }
 
     return res;
     // Create the pipe end points i.e 0 - read and 1 - write int pipefd[2];
@@ -329,7 +331,16 @@ int stackfs__releasedir(const char *path, struct fuse_file_info *fi)
     return 0;
 }
 
+static void *stackfs_init(struct fuse_conn_info *conn, struct fuse_config *conf)
+{
+    (void)conf;
+    conn->want |= FUSE_CAP_SPLICE_READ | FUSE_CAP_SPLICE_WRITE | FUSE_CAP_SPLICE_MOVE;
+    //conn->capable |= FUSE_CAP_SPLICE_READ | FUSE_CAP_SPLICE_WRITE | FUSE_CAP_SPLICE_MOVE;
+    return NULL;
+}
+
 static struct fuse_operations stackfs__op = {
+    .init = stackfs_init,
     .getattr = stackfs__getattr,
     .opendir = stackfs__opendir,
     .open = stackfs__open,

@@ -119,7 +119,8 @@ static void handle_releasedir(int connfd, uint64_t fh)
 
 static void handle_read(int connfd, const char *path, size_t size)
 {
-
+    //ToDo: Handle errors
+    
     int pipefd[2];
     pipe(pipefd);
 
