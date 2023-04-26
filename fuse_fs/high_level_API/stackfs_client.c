@@ -373,10 +373,10 @@ static struct fuse_operations stackfs__op = {
     .getattr = stackfs__getattr,
     .opendir = stackfs__opendir,
     .open = stackfs__open,
-    .read = stackfs__read,
+    // .read = stackfs__read,
     .readdir = stackfs__readdir,
     .readlink = stackfs__readlink,
-    // .read_buf = stackfs__read_buf,
+    .read_buf = stackfs__read_buf,
 
 };
 

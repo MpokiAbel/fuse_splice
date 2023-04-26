@@ -50,7 +50,7 @@ static void handle_opendir(int connfd, const char *path)
     if (dir == NULL)
     {
         int i = 0;
-        printf("Opendir failed on the server");
+        printf("Opendir failed on the server\n");
         send(connfd, &i, sizeof(int), 0);
     }
 

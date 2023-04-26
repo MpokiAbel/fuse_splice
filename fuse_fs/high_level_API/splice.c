@@ -19,14 +19,14 @@ int main(int argc, char const *argv[])
     int pipefd[2];
     pipe(pipefd);
 
-    fd_in = open("./root/test", O_RDONLY);
-    fd_out = open("./root/out", O_WRONLY);
+    fd_in = open("../root/test", O_RDONLY);
+    fd_out = open("../root/out", O_WRONLY);
     if (fd_in < 0 | fd_out < 0)
     {
         perror("open");
     }
     // for splicing, one of the file descriptors must refers to a pipe file descriptor
-    sp = splice(STDIN_FILENO, NULL, pipefd[1], NULL, 4096, SPLICE_F_MOVE);
+    sp = splice(fd_in, NULL, pipefd[1], NULL, 4096, SPLICE_F_MOVE);
     sp = splice(pipefd[0], NULL, fd_out, NULL, sp, SPLICE_F_MOVE);
     perror("splice");
 
