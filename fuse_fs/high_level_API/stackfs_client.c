@@ -11,8 +11,6 @@
 #include <fuse.h>
 #include "socket.h"
 
-// static const char *base_dir = "/home/mpoki/Documents/M2_MOSIG/Stage/fuse_fs/root";
-
 int stackfs__getattr(const char *path, struct stat *stat, struct fuse_file_info *fi)
 {
     int res;
@@ -26,27 +24,22 @@ int stackfs__getattr(const char *path, struct stat *stat, struct fuse_file_info 
         struct server_response stat_res;
 
         strcpy(request.path, path);
-        request.type = 1;
+        request.type = GETATTR;
 
-        // printf("getattr: %s\n", buf);
         if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         {
             perror("send");
             close(sockfd);
             return -errno;
         }
-
         // Receive the response from the server
         recv(sockfd, &stat_res, sizeof(struct server_response), 0);
-        // if (stat_res.bool == 0)
-        //     printf("");
 
         *stat = stat_res.stat;
         close(sockfd);
     }
     else
     {
-
         res = lstat(path, stat);
         if (res == -1)
             return -errno;
@@ -66,7 +59,7 @@ int stackfs__open(const char *path, struct fuse_file_info *fi)
         int res[2];
 
         strcpy(request.path, path);
-        request.type = 2;
+        request.type = OPEN;
         request.flags = fi->flags;
 
         if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
@@ -109,7 +102,7 @@ int stackfs__opendir(const char *path, struct fuse_file_info *fi)
         int sockfd = do_client_connect();
         struct requests request;
         strcpy(request.path, path);
-        request.type = 3;
+        request.type = OPENDIR;
 
         if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         {
@@ -159,7 +152,7 @@ int stackfs__read(const char *path, char *buff, size_t size, off_t offset, struc
         struct requests request;
         memset(&request, 0, sizeof(struct requests));
         strcpy(request.path, path);
-        request.type = 4;
+        request.type = READ;
         request.flags = fi->flags;
         request.fh = fi->fh;
         request.size = size;
@@ -236,7 +229,7 @@ int stackfs__readdir(const char *path, void *buff, fuse_fill_dir_t filler, off_t
         struct requests request;
         struct server_response response;
         strcpy(request.path, path);
-        request.type = 5;
+        request.type = READDIR;
 
         if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         {
@@ -294,7 +287,7 @@ int stackfs__readlink(const char *path, char *buff, size_t size)
         int sockfd = do_client_connect();
         struct requests request;
         strcpy(request.path, path);
-        request.type = 6;
+        request.type = READLINK;
         request.size = size;
 
         if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
@@ -328,7 +321,7 @@ int stackfs__releasedir(const char *path, struct fuse_file_info *fi)
         struct requests request;
         strcpy(request.path, path);
         request.fh = fi->fh;
-        request.type = 5;
+        request.type = RELEASEDIR;
 
         if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         {
@@ -373,15 +366,15 @@ static struct fuse_operations stackfs__op = {
     .getattr = stackfs__getattr,
     .opendir = stackfs__opendir,
     .open = stackfs__open,
-    // .read = stackfs__read,
+    .read = stackfs__read,
     .readdir = stackfs__readdir,
     .readlink = stackfs__readlink,
+    .releasedir = stackfs__releasedir,
     .read_buf = stackfs__read_buf,
 
 };
 
 int main(int argc, char *argv[])
 {
-
     return fuse_main(argc, argv, &stackfs__op, NULL);
 }

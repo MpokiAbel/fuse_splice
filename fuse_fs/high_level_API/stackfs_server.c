@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include "socket.h"
 
-const char *base_dir = "./root";
+const char *base_dir = "../root";
 static void
 handle_getattr(int connfd, const char *path)
 {
@@ -127,7 +127,7 @@ static void handle_read(int connfd, const char *path, uint64_t fh, int flags, si
         perror("pipe");
         exit(EXIT_FAILURE);
     }
-    printf("fh is : %ld",fh);
+    printf("fh is : %ld", fh);
     // if (fh == NULL)
     // {
     //     fh = open(path, O_RDONLY);
@@ -161,31 +161,31 @@ static void handle_request(int connfd, struct requests *request)
 
     switch (request->type)
     {
-    case 1:
+    case GETATTR:
         handle_getattr(connfd, request->path);
         break;
 
-    case 2:
+    case OPEN:
         handle_open(connfd, request->path, request->flags);
         break;
 
-    case 3:
+    case OPENDIR:
         handle_opendir(connfd, request->path);
         break;
 
-    case 4:
+    case READ:
         handle_read(connfd, request->path, request->fh, request->flags, request->size);
         break;
 
-    case 5:
+    case READDIR:
         handle_readdir(connfd, request->path);
         break;
 
-    case 6:
+    case READLINK:
         handle_readlink(connfd, request->path, request->size);
         break;
 
-    case 7:
+    case RELEASEDIR:
         handle_releasedir(connfd, request->fh);
         break;
 

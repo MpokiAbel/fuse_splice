@@ -2,8 +2,19 @@
 #include <arpa/inet.h>
 #include <sys/stat.h>
 
-#define ENABLE_REMOTE 0
-#define SERVER_PORT 9001
+#define ENABLE_REMOTE 1
+#define SERVER_PORT 9000
+
+
+//Request Sent
+#define GETATTR 1
+#define OPEN 2
+#define OPENDIR 3
+#define READ 4
+#define READDIR 5
+#define READLINK 6
+#define RELEASEDIR 7
+#define READ_BUF 8
 
 struct requests
 {
