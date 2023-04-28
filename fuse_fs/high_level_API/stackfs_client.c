@@ -1,4 +1,5 @@
 #define FUSE_USE_VERSION 31
+#define _GNU_SOURCE
 #include <limits.h>
 #include <errno.h>
 #include <stdio.h>
@@ -8,8 +9,35 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/ioctl.h>
 #include <fuse.h>
+#include <sys/types.h>
+#include <sys/time.h>
 #include "socket.h"
+
+struct stackfs_data
+{
+    int sockfd;
+};
+
+static int input_timeout(int filedes, unsigned int seconds)
+{
+    fd_set set;
+    struct timeval timeout;
+
+    /* Initialize the file descriptor set. */
+    FD_ZERO(&set);
+    FD_SET(filedes, &set);
+
+    /* Initialize the timeout data structure. */
+    timeout.tv_sec = seconds;
+    timeout.tv_usec = 0;
+
+    /* select returns 0 if timeout, 1 if input available, -1 if error. */
+    return TEMP_FAILURE_RETRY(select(FD_SETSIZE,
+                                     &set, NULL, NULL,
+                                     &timeout));
+}
 
 int stackfs__getattr(const char *path, struct stat *stat, struct fuse_file_info *fi)
 {
@@ -18,25 +46,25 @@ int stackfs__getattr(const char *path, struct stat *stat, struct fuse_file_info 
 
     if (ENABLE_REMOTE)
     {
-        int sockfd = do_client_connect();
+        struct stackfs_data *data = (struct stackfs_data *)fuse_get_context()->private_data;
 
         struct requests request;
         struct server_response stat_res;
 
         strcpy(request.path, path);
         request.type = GETATTR;
+        printf("I am in init %d\n", data->sockfd);
 
-        if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
+        if (send(data->sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         {
             perror("send");
-            close(sockfd);
+
             return -errno;
         }
         // Receive the response from the server
-        recv(sockfd, &stat_res, sizeof(struct server_response), 0);
+        recv(data->sockfd, &stat_res, sizeof(struct server_response), 0);
 
         *stat = stat_res.stat;
-        close(sockfd);
     }
     else
     {
@@ -53,7 +81,7 @@ int stackfs__open(const char *path, struct fuse_file_info *fi)
     int fd;
     if (ENABLE_REMOTE)
     {
-        int sockfd = do_client_connect();
+        struct stackfs_data *data = (struct stackfs_data *)fuse_get_context()->private_data;
 
         struct requests request;
         int res[2];
@@ -62,20 +90,18 @@ int stackfs__open(const char *path, struct fuse_file_info *fi)
         request.type = OPEN;
         request.flags = fi->flags;
 
-        if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
+        if (send(data->sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         {
             perror("send");
-            close(sockfd);
+
             return -errno;
         }
 
-        recv(sockfd, res, sizeof(res), 0);
+        recv(data->sockfd, res, sizeof(res), 0);
         if (res[0] == 0)
             printf("There is an error\n");
         else
             fi->fh = res[1];
-
-        close(sockfd);
     }
     else
     {
@@ -99,26 +125,26 @@ int stackfs__opendir(const char *path, struct fuse_file_info *fi)
     // Open directory
     if (ENABLE_REMOTE)
     {
-        int sockfd = do_client_connect();
+        struct stackfs_data *data = (struct stackfs_data *)fuse_get_context()->private_data;
+
         struct requests request;
         strcpy(request.path, path);
         request.type = OPENDIR;
 
-        if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
+        if (send(data->sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         {
             perror("send");
             return -errno;
         }
 
-        int rec = recv(sockfd, &ptr, sizeof(uint64_t), 0);
+        int rec = recv(data->sockfd, &ptr, sizeof(uint64_t), 0);
         if (rec != sizeof(uint64_t))
         {
             ret = -errno;
-            close(sockfd);
+
             return ret;
         }
         // printf("Received!! %ld\n", ptr);
-        close(sockfd);
     }
     else
     {
@@ -143,12 +169,7 @@ int stackfs__read(const char *path, char *buff, size_t size, off_t offset, struc
 
     if (ENABLE_REMOTE)
     {
-        int sockfd = do_client_connect();
-        if (sockfd == -1)
-        {
-            return -errno;
-        }
-
+        struct stackfs_data *data = (struct stackfs_data *)fuse_get_context()->private_data;
         struct requests request;
         memset(&request, 0, sizeof(struct requests));
         strcpy(request.path, path);
@@ -157,18 +178,18 @@ int stackfs__read(const char *path, char *buff, size_t size, off_t offset, struc
         request.fh = fi->fh;
         request.size = size;
 
-        if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
+        if (send(data->sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         {
             perror("send");
-            close(sockfd);
+
             return -errno;
         }
 
-        int res = recv(sockfd, buff, size, 0);
+        int res = recv(data->sockfd, buff, size, 0);
         if (res == -1)
         {
             perror("recv");
-            close(sockfd);
+
             return -errno;
         }
         else if (res < size)
@@ -176,7 +197,6 @@ int stackfs__read(const char *path, char *buff, size_t size, off_t offset, struc
             fprintf(stderr, "Received less data than requested\n");
         }
 
-        close(sockfd);
         return res;
     }
 
@@ -224,17 +244,17 @@ int stackfs__readdir(const char *path, void *buff, fuse_fill_dir_t filler, off_t
     // printf("readdir: %s\n", path);
     if (ENABLE_REMOTE)
     {
-        int sockfd = do_client_connect();
+        struct stackfs_data *data = (struct stackfs_data *)fuse_get_context()->private_data;
 
         struct requests request;
         struct server_response response;
         strcpy(request.path, path);
         request.type = READDIR;
 
-        if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
+        if (send(data->sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         {
             perror("send");
-            close(sockfd);
+
             return -errno;
         }
 
@@ -242,7 +262,7 @@ int stackfs__readdir(const char *path, void *buff, fuse_fill_dir_t filler, off_t
 
         while (n < count)
         {
-            recv(sockfd, &response, sizeof(response), 0);
+            recv(data->sockfd, &response, sizeof(response), 0);
             filler(buff, response.path, &response.stat, 0, FUSE_FILL_DIR_PLUS);
 
             n++;
@@ -251,8 +271,6 @@ int stackfs__readdir(const char *path, void *buff, fuse_fill_dir_t filler, off_t
                 count = response.size - 1;
             }
         }
-
-        close(sockfd);
     }
     else
     {
@@ -284,21 +302,20 @@ int stackfs__readlink(const char *path, char *buff, size_t size)
 
     if (ENABLE_REMOTE)
     {
-        int sockfd = do_client_connect();
+        struct stackfs_data *data = (struct stackfs_data *)fuse_get_context()->private_data;
+
         struct requests request;
         strcpy(request.path, path);
         request.type = READLINK;
         request.size = size;
 
-        if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
+        if (send(data->sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         {
             perror("send");
-            close(sockfd);
             return -errno;
         }
 
-        recv(sockfd, buff, size, 0);
-        close(sockfd);
+        recv(data->sockfd, buff, size, 0);
     }
     else
     {
@@ -316,22 +333,20 @@ int stackfs__releasedir(const char *path, struct fuse_file_info *fi)
     int ret;
     if (ENABLE_REMOTE)
     {
-        int sockfd = do_client_connect();
+        struct stackfs_data *data = (struct stackfs_data *)fuse_get_context()->private_data;
 
         struct requests request;
         strcpy(request.path, path);
         request.fh = fi->fh;
         request.type = RELEASEDIR;
 
-        if (send(sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
+        if (send(data->sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         {
             perror("send");
-            close(sockfd);
             return -errno;
         }
 
-        recv(sockfd, &ret, sizeof(ret), 0);
-        close(sockfd);
+        recv(data->sockfd, &ret, sizeof(ret), 0);
     }
     else
     {
@@ -343,12 +358,52 @@ int stackfs__releasedir(const char *path, struct fuse_file_info *fi)
 int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
                       size_t size, off_t off, struct fuse_file_info *fi)
 {
-    struct fuse_bufvec *buf = (struct fuse_bufvec *)malloc(sizeof(struct fuse_bufvec));
-    *buf = FUSE_BUFVEC_INIT(size);
-    buf->buf[0].pos = off;
-    buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_SEEK;
-    buf->buf[0].fd = fi->fh;
-    *bufp = buf;
+
+    if (ENABLE_REMOTE)
+    {
+        struct stackfs_data *data = (struct stackfs_data *)fuse_get_context()->private_data;
+
+        struct requests request;
+        memset(&request, 0, sizeof(struct requests));
+        strcpy(request.path, path);
+        request.type = READ_BUF;
+        request.flags = fi->flags;
+        request.fh = fi->fh;
+        request.size = size;
+
+        if (send(data->sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
+        {
+            perror("send");
+            return -errno;
+        }
+
+        /* Wait until data becomes available in the socket
+            Todo: Errors are not handled yet
+        */
+        input_timeout(data->sockfd, 5);
+
+        // Get the size of data received in the socket
+        size_t socketsize;
+        ioctl(data->sockfd, FIONREAD, &socketsize);
+
+        // Setup the buffer
+        struct fuse_bufvec *buf = (struct fuse_bufvec *)malloc(sizeof(struct fuse_bufvec));
+        *buf = FUSE_BUFVEC_INIT(socketsize);
+        buf->buf[0].flags |= FUSE_BUF_IS_FD;
+        buf->buf[0].fd = data->sockfd;
+        *bufp = buf;
+        printf("In file system %d and size:%ld and socketsize %ld\n", data->sockfd, size, socketsize);
+    }
+
+    else
+    {
+        struct fuse_bufvec *buf = (struct fuse_bufvec *)malloc(sizeof(struct fuse_bufvec));
+        *buf = FUSE_BUFVEC_INIT(size);
+        buf->buf[0].pos = off;
+        buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_SEEK;
+        buf->buf[0].fd = fi->fh;
+        *bufp = buf;
+    }
 
     return 0;
 }
@@ -358,7 +413,21 @@ static void *stackfs__init(struct fuse_conn_info *conn, struct fuse_config *conf
     (void)conf;
     if ((conn->capable & FUSE_CAP_SPLICE_WRITE) && (conn->capable & FUSE_CAP_SPLICE_MOVE) && (conn->capable & FUSE_CAP_SPLICE_READ))
         conn->want |= FUSE_CAP_SPLICE_READ | FUSE_CAP_SPLICE_WRITE | FUSE_CAP_SPLICE_MOVE;
-    return NULL;
+    struct stackfs_data *data = (struct stackfs_data *)malloc(sizeof(struct stackfs_data));
+
+    data->sockfd = do_client_connect();
+    if (data->sockfd == -1)
+    {
+        return NULL;
+    }
+    printf("I am in init %d\n", data->sockfd);
+    return (void *)data;
+}
+
+void stackfs__destroy (void *private_data){
+
+    struct stackfs_data *data = (struct stackfs_data *)private_data;
+    close(data->sockfd);
 }
 
 static struct fuse_operations stackfs__op = {
@@ -371,10 +440,12 @@ static struct fuse_operations stackfs__op = {
     .readlink = stackfs__readlink,
     .releasedir = stackfs__releasedir,
     .read_buf = stackfs__read_buf,
+    .destroy = stackfs__destroy,
 
 };
 
 int main(int argc, char *argv[])
 {
+
     return fuse_main(argc, argv, &stackfs__op, NULL);
 }

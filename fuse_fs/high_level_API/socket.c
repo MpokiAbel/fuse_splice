@@ -8,7 +8,7 @@ struct socket
     struct sockaddr_in serv_addr;
 };
 
-struct socket create_socket()
+static struct socket create_socket()
 {
     struct socket sock;
 

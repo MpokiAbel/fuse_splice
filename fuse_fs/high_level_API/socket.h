@@ -5,8 +5,7 @@
 #define ENABLE_REMOTE 1
 #define SERVER_PORT 9000
 
-
-//Request Sent
+// Request Sent
 #define GETATTR 1
 #define OPEN 2
 #define OPENDIR 3

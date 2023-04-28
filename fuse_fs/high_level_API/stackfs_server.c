@@ -176,6 +176,10 @@ static void handle_request(int connfd, struct requests *request)
     case READ:
         handle_read(connfd, request->path, request->fh, request->flags, request->size);
         break;
+    
+    case READ_BUF:
+        handle_read(connfd, request->path, request->fh, request->flags, request->size);
+        break;
 
     case READDIR:
         handle_readdir(connfd, request->path);
