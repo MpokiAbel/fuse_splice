@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "memory": "c",
+        "condition_variable": "c",
+        "errno.h": "c"
+    }
+}

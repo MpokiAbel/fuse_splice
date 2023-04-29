@@ -20,11 +20,11 @@ handle_getattr(int connfd, const char *path)
     // printf("getattr: %s\n", path);
     if (res < 0)
     {
-        printf("handle_getatt failed\n");
-        stbuf.bool = 0;
+        // printf("handle_getatt failed\n");
+        stbuf.error = 0;
     }
     else
-        stbuf.bool = 1;
+        stbuf.error = 1;
 
     send(connfd, &stbuf, sizeof(stbuf), 0);
 }
@@ -35,7 +35,6 @@ static void handle_open(int connfd, const char *path, int flags)
     int res[2] = {0};
 
     res[1] = open(path, flags);
-    printf("open: %s\n", path);
     if (res[1] >= 0)
         res[0] = 1;
 
@@ -44,77 +43,51 @@ static void handle_open(int connfd, const char *path, int flags)
 
 static void handle_opendir(int connfd, const char *path)
 {
+    struct server_response response = {0};
     DIR *dir = opendir(path);
-    uint64_t ptr = (uint64_t)dir;
-    // printf("opendir: %s: %ld\n", path, ptr);
+    response.fh = (uint64_t)dir;
     if (dir == NULL)
-    {
-        int i = 0;
-        printf("Opendir failed on the server\n");
-        send(connfd, &i, sizeof(int), 0);
-    }
+        response.error = -errno;
 
-    else
-        send(connfd, &ptr, sizeof(intptr_t), 0);
+    send(connfd, &response, sizeof(struct server_response), 0);
 }
 
-static void handle_readdir(int connfd, const char *path)
+static void handle_readdir(int connfd, const char *path, uint64_t fh, int flags)
 {
-    DIR *dir;
+    DIR *dir = (DIR *)fh;
     struct dirent *de;
-    struct server_response res;
+    struct server_response respose;
     size_t count = 0;
-
-    // printf("readdir: %s\n", path);
-    dir = opendir(path);
-    if (dir == NULL)
-    {
-        perror("opendir");
-        return;
-    }
-
-    while ((de = readdir(dir)) != NULL)
-    {
-        count++;
-    }
-
-    dir = opendir(path);
     if (!dir)
     {
-        perror("opendir");
+        strcpy(respose.path, "Error");
+        send(connfd, &respose, sizeof(struct server_response), 0);
         return;
     }
     while ((de = readdir(dir)) != NULL)
     {
-        strcpy(res.path, de->d_name);
-        res.stat.st_ino = de->d_ino;
-        res.stat.st_mode = de->d_type << 12;
-        res.size = count;
-        send(connfd, &res, sizeof(res), 0);
+        strcpy(respose.path, de->d_name);
+        respose.stat.st_ino = de->d_ino;
+        respose.stat.st_mode = de->d_type << 12;
+        respose.size = count;
+        send(connfd, &respose, sizeof(struct server_response), 0);
     }
-
-    closedir(dir);
+    strcpy(respose.path, "End");
+    send(connfd, &respose, sizeof(struct server_response), 0);
 }
 
 static void handle_readlink(int connfd, const char *path, size_t size)
 {
     char buff[size];
-
     int ret = readlink(path, buff, size - 1);
-
     buff[ret] = '\0';
-    // printf("readlink: %s\n", path);
-
     send(connfd, buff, size, 0);
 }
 
 static void handle_releasedir(int connfd, uint64_t fh)
 {
-
-    int ret = closedir((DIR *)fh);
-    printf("releasedir: \n");
-
-    send(connfd, &ret, sizeof(ret), 0);
+    DIR *dir = (DIR *)(uintptr_t)fh;
+    closedir(dir);
 }
 
 static void handle_read(int connfd, const char *path, uint64_t fh, int flags, size_t size)
@@ -153,6 +126,21 @@ static void handle_read(int connfd, const char *path, uint64_t fh, int flags, si
     close(pipefd[0]);
 }
 
+static void handle_access(int connfd, const char *path, int mask)
+{
+
+    struct server_response response;
+    if (access(path, mask) == -1)
+        response.error = -errno;
+
+    send(connfd, &response, sizeof(struct server_response), 0);
+}
+
+static void handle_release(int connfd, const char *path, uint64_t fh)
+{
+    close(fh);
+}
+
 static void handle_request(int connfd, struct requests *request)
 {
     char path[256];
@@ -176,13 +164,13 @@ static void handle_request(int connfd, struct requests *request)
     case READ:
         handle_read(connfd, request->path, request->fh, request->flags, request->size);
         break;
-    
+
     case READ_BUF:
         handle_read(connfd, request->path, request->fh, request->flags, request->size);
         break;
 
     case READDIR:
-        handle_readdir(connfd, request->path);
+        handle_readdir(connfd, request->path, request->fh, request->flags);
         break;
 
     case READLINK:
@@ -191,6 +179,14 @@ static void handle_request(int connfd, struct requests *request)
 
     case RELEASEDIR:
         handle_releasedir(connfd, request->fh);
+        break;
+
+    case ACCESS:
+        handle_access(connfd, request->path, request->mask);
+        break;
+
+    case RELEASE:
+        handle_release(connfd, request->path, request->fh);
         break;
 
     default:
@@ -208,7 +204,6 @@ int main(int argc, char const *argv[])
     struct requests recv_request = {0};
     int n;
 
-    printf("Entering the while\n");
     while (1)
     {
         int connfd = accept(sockfd, NULL, NULL);
@@ -217,12 +212,17 @@ int main(int argc, char const *argv[])
             perror("accept");
             return -1;
         }
+
+        printf("Accepted the connection\n");
         while (1)
         {
             n = recv(connfd, &recv_request, sizeof(struct requests), 0);
+            // printf("Request %d received for path %s file descriptor %ld\n", recv_request.type, recv_request.path, recv_request.fh);
+
+            // sleep(5);
             if (n <= 0)
             {
-                perror("recv");
+                perror("recv connefd closed goes to accept");
                 close(connfd);
                 break;
             }

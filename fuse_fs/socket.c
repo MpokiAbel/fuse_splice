@@ -38,6 +38,13 @@ int do_server_connect()
 {
     struct socket sock = create_socket();
 
+    // int opt = 1;
+    // if (setsockopt(sock.fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt)))
+    // {
+    //     perror("setsockopt");
+    //     return -1;
+    // }
+
     // Bind the socket
     if (bind(sock.fd, (struct sockaddr *)&sock.serv_addr, sizeof(sock.serv_addr)) < 0)
     {

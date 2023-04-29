@@ -3,7 +3,7 @@
 #include <sys/stat.h>
 
 #define ENABLE_REMOTE 1
-#define SERVER_PORT 9000
+#define SERVER_PORT 9001
 
 // Request Sent
 #define GETATTR 1
@@ -14,6 +14,8 @@
 #define READLINK 6
 #define RELEASEDIR 7
 #define READ_BUF 8
+#define RELEASE 9
+#define ACCESS 10
 
 struct requests
 {
@@ -23,14 +25,16 @@ struct requests
     uint64_t fh;
     // Used for simlink
     size_t size;
+    int mask;
 };
 
 struct server_response
 {
-    int bool;
+    int error;
     char path[256];
     size_t size;
     struct stat stat;
+    uint64_t fh;
 };
 
 int do_client_connect();
