@@ -109,7 +109,19 @@ static void handle_release(int connfd, const char *path, uint64_t fh)
     close(fh);
 }
 
+static void handle_flush(int connfd, const char *path, uint64_t fh)
+{
+
+    (void)path;
+    struct server_response response = {0};
+    if (close(dup(fh)) == -1)
+        response.error = -errno;
+
+    send(connfd, &response, sizeof(struct server_response), 0);
+}
+
 static void handle_request(int connfd, struct requests *request)
+
 {
     char path[256];
     strcpy(path, request->path);
@@ -155,6 +167,10 @@ static void handle_request(int connfd, struct requests *request)
 
     case RELEASE:
         handle_release(connfd, request->path, request->fh);
+        break;
+
+    case FLUSH:
+        handle_flush(connfd, request->path, request->fh);
         break;
 
     default:

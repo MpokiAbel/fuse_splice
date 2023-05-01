@@ -387,6 +387,36 @@ static void *stackfs__init(struct fuse_conn_info *conn, struct fuse_config *conf
 #endif
 }
 
+int stackfs__flush(const char *path, struct fuse_file_info *fi)
+{
+
+#ifdef ENABLE_REMOTE
+    struct stackfs_data *data = (struct stackfs_data *)fuse_get_context()->private_data;
+
+    struct requests request;
+    strcpy(request.path, path);
+    request.fh = fi->fh;
+    request.type = FLUSH;
+
+    if (send(data->sockfd, &request, sizeof(struct requests), 0) == -1)
+        return -errno;
+
+    struct server_response response;
+
+    if (recv(data->sockfd, &response, sizeof(struct server_response), 0) == -1)
+        return -errno;
+
+    if (response.error < 0)
+        return response.error;
+
+#else
+    (void)path;
+    if (close(dup(fi->fh)) == -1)
+        return -errno;
+#endif
+    return 0;
+}
+
 void stackfs__destroy(void *private_data)
 {
 #ifdef REMOTE_ENABLE
@@ -406,6 +436,7 @@ static struct fuse_operations stackfs__op = {
     .releasedir = stackfs__releasedir,
     .release = stackfs__release,
     .read_buf = stackfs__read_buf,
+    .flush = stackfs__flush,
     .destroy = stackfs__destroy,
 
 };

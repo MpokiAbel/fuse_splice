@@ -16,6 +16,8 @@
 #define READ_BUF 8
 #define RELEASE 9
 #define ACCESS 10
+#define FLUSH 11
+
 
 struct requests
 {
