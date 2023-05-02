@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include "socket.h"
 
-const char *base_dir = "../resources";
+const char *base_dir = "";
 static void
 handle_getattr(int connfd, const char *path)
 {
@@ -83,13 +83,13 @@ static void handle_releasedir(int connfd, uint64_t fh)
 static void handle_read(int connfd, const char *path, uint64_t fh, int flags, size_t size)
 {
     int pipefd[2];
-    int sp;
+    size_t sp;
 
     // create a pipe and check for errors
     pipe(pipefd);
     sp = splice(fh, NULL, pipefd[1], NULL, size, SPLICE_F_MOVE);
     sp = splice(pipefd[0], NULL, connfd, NULL, sp, SPLICE_F_MOVE);
-
+    printf("Size of data sent %ld\n", sp);
     close(pipefd[1]);
     close(pipefd[0]);
 }

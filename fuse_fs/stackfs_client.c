@@ -337,25 +337,26 @@ int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
         return -errno;
 
     /* Wait until data becomes available in the socket
-        Todo: Errors are not handled yet
-    */
+        Todo: Errors are not handled yet    */
+
     if (input_timeout(data->sockfd, 10) != 1)
-        return -EIO;
+    {
+        printf("Error occured in select");
+        return 0;
+    }
 
     // Get the size of data received in the socket
-
     size_t socketsize = 0;
 
     if (ioctl(data->sockfd, FIONREAD, &socketsize) == -1)
         printf("*****************Error occured****************");
-
+    printf("data amount %ld\n", socketsize);
     // Setup the buffer
     struct fuse_bufvec *buf = (struct fuse_bufvec *)malloc(sizeof(struct fuse_bufvec));
     *buf = FUSE_BUFVEC_INIT(socketsize);
     buf->buf[0].flags |= FUSE_BUF_IS_FD;
     buf->buf[0].fd = data->sockfd;
     *bufp = buf;
-    // printf("In file system %d and size:%ld and socketsize %ld\n", data->sockfd, size, socketsize);
 
 #else
 
