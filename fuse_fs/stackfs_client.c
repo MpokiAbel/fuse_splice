@@ -339,11 +339,15 @@ int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
     /* Wait until data becomes available in the socket
         Todo: Errors are not handled yet
     */
-    input_timeout(data->sockfd, 2);
+    if (input_timeout(data->sockfd, 10) != 1)
+        return -EIO;
 
     // Get the size of data received in the socket
-    size_t socketsize;
-    ioctl(data->sockfd, FIONREAD, &socketsize);
+
+    size_t socketsize = 0;
+
+    if (ioctl(data->sockfd, FIONREAD, &socketsize) == -1)
+        printf("*****************Error occured****************");
 
     // Setup the buffer
     struct fuse_bufvec *buf = (struct fuse_bufvec *)malloc(sizeof(struct fuse_bufvec));

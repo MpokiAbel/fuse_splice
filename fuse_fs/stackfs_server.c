@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include "socket.h"
 
-const char *base_dir = "../root";
+const char *base_dir = "../resources";
 static void
 handle_getattr(int connfd, const char *path)
 {
