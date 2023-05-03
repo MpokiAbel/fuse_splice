@@ -7,18 +7,24 @@
 #include <fcntl.h>
 #include <dirent.h>
 #include <stdint.h>
+#include <sys/sendfile.h>
 #include "socket.h"
 
-const char *base_dir = "";
+const char *base_dir = "../resources";
 static void
 handle_getattr(int connfd, const char *path)
 {
-    struct server_response stbuf = {0};
+    struct server_response response = {0};
 
-    if (lstat(path, &stbuf.stat) < 0)
-        stbuf.error = -errno;
+    if (lstat(path, &response.stat) < 0)
+    {
+        perror("handle_getattr lstat");
+        response.error = -errno;
+    }
 
-    send(connfd, &stbuf, sizeof(stbuf), 0);
+    response.type = GETATTR;
+    if (send(connfd, &response, sizeof(struct server_response), 0) == -1)
+        perror("handle_getattr send");
 }
 
 static void handle_open(int connfd, const char *path, int flags)
@@ -27,8 +33,12 @@ static void handle_open(int connfd, const char *path, int flags)
     struct server_response response = {0};
 
     if ((response.fh = open(path, flags)) == -1)
+    {
+        perror("handle_open Open");
         response.error = -errno;
-    send(connfd, &response, sizeof(struct server_response), 0);
+    }
+    if (send(connfd, &response, sizeof(struct server_response), 0) == -1)
+        perror("handle_open send");
 }
 
 static void handle_opendir(int connfd, const char *path)
@@ -36,34 +46,42 @@ static void handle_opendir(int connfd, const char *path)
     struct server_response response = {0};
     DIR *dir = opendir(path);
     response.fh = (uint64_t)dir;
+    response.type = OPENDIR;
     if (dir == NULL)
+    {
         response.error = -errno;
+        perror("handle_opendir Opendir");
+    }
 
-    send(connfd, &response, sizeof(struct server_response), 0);
+    if (send(connfd, &response, sizeof(struct server_response), 0) == -1)
+        perror("handle_opendir send");
 }
 
 static void handle_readdir(int connfd, const char *path, uint64_t fh, int flags)
 {
     DIR *dir = (DIR *)fh;
     struct dirent *de;
-    struct server_response respose;
+    struct server_response response;
     size_t count = 0;
     if (!dir)
     {
-        strcpy(respose.path, "Error");
-        send(connfd, &respose, sizeof(struct server_response), 0);
+        strcpy(response.path, "Error");
+        if (send(connfd, &response, sizeof(struct server_response), 0) == -1)
+            perror("handle_readdir send 1");
         return;
     }
     while ((de = readdir(dir)) != NULL)
     {
-        strcpy(respose.path, de->d_name);
-        respose.stat.st_ino = de->d_ino;
-        respose.stat.st_mode = de->d_type << 12;
-        respose.size = count;
-        send(connfd, &respose, sizeof(struct server_response), 0);
+        strcpy(response.path, de->d_name);
+        response.stat.st_ino = de->d_ino;
+        response.stat.st_mode = de->d_type << 12;
+        response.size = count;
+        if (send(connfd, &response, sizeof(struct server_response), 0) == -1)
+            perror("handle_readdir send 2");
     }
-    strcpy(respose.path, "End");
-    send(connfd, &respose, sizeof(struct server_response), 0);
+    strcpy(response.path, "End");
+    if (send(connfd, &response, sizeof(struct server_response), 0) == -1)
+        perror("handle_readdir send 3");
 }
 
 static void handle_readlink(int connfd, const char *path, size_t size)
@@ -71,7 +89,8 @@ static void handle_readlink(int connfd, const char *path, size_t size)
     char buff[size];
     int ret = readlink(path, buff, size - 1);
     buff[ret] = '\0';
-    send(connfd, buff, size, 0);
+    if (send(connfd, buff, size, 0) == -1)
+        perror("handle_readlink send");
 }
 
 static void handle_releasedir(int connfd, uint64_t fh)
@@ -80,28 +99,46 @@ static void handle_releasedir(int connfd, uint64_t fh)
     closedir(dir);
 }
 
-static void handle_read(int connfd, const char *path, uint64_t fh, int flags, size_t size)
+static void handle_read(int connfd, const char *path, uint64_t fh, int flags, size_t size, off_t off)
 {
-    int pipefd[2];
-    size_t sp;
+    size_t sf;
+    // Get actual file size
+    struct stat statbuf;
+    stat(path, &statbuf);
 
-    // create a pipe and check for errors
-    pipe(pipefd);
-    sp = splice(fh, NULL, pipefd[1], NULL, size, SPLICE_F_MOVE);
-    sp = splice(pipefd[0], NULL, connfd, NULL, sp, SPLICE_F_MOVE);
-    printf("Size of data sent %ld\n", sp);
-    close(pipefd[1]);
-    close(pipefd[0]);
+    int buffer_size;
+    socklen_t optlen = sizeof(buffer_size);
+
+    if (getsockopt(connfd, SOL_SOCKET, SO_SNDBUF, &buffer_size, &optlen) == -1)
+    {
+        perror("getsockopt");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Socket receive buffer size is %d bytes\n", buffer_size);
+
+    sf = size < statbuf.st_size ? sendfile(connfd, fh, &off, size) : sendfile(connfd, fh, &off, statbuf.st_size);
+
+    if (sf == -1)
+        perror("handle_read sendfile");
+
+    printf("Data sent is %ld \n", sf);
 }
 
 static void handle_access(int connfd, const char *path, int mask)
 {
 
     struct server_response response;
-    if (access(path, mask) == -1)
-        response.error = -errno;
+    response.type = ACCESS;
 
-    send(connfd, &response, sizeof(struct server_response), 0);
+    if (access(path, mask) == -1)
+    {
+        response.error = -errno;
+        perror("handle_access access");
+    }
+
+    if (send(connfd, &response, sizeof(struct server_response), 0) == -1)
+        perror("handle_access send");
 }
 
 static void handle_release(int connfd, const char *path, uint64_t fh)
@@ -115,9 +152,13 @@ static void handle_flush(int connfd, const char *path, uint64_t fh)
     (void)path;
     struct server_response response = {0};
     if (close(dup(fh)) == -1)
+    {
         response.error = -errno;
+        perror("handle_flush close");
+    }
 
-    send(connfd, &response, sizeof(struct server_response), 0);
+    if (send(connfd, &response, sizeof(struct server_response), 0) == -1)
+        perror("handle_flush send");
 }
 
 static void handle_request(int connfd, struct requests *request)
@@ -141,12 +182,12 @@ static void handle_request(int connfd, struct requests *request)
         handle_opendir(connfd, request->path);
         break;
 
-        // case READ:
-        //     handle_read(connfd, request->path, request->fh, request->flags, request->size);
-        //     break;
+    case READ:
+        handle_read(connfd, request->path, request->fh, request->flags, request->size, request->off);
+        break;
 
     case READ_BUF:
-        handle_read(connfd, request->path, request->fh, request->flags, request->size);
+        handle_read(connfd, request->path, request->fh, request->flags, request->size, request->off);
         break;
 
     case READDIR:

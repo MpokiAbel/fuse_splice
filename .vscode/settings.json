@@ -2,6 +2,7 @@
     "files.associations": {
         "memory": "c",
         "condition_variable": "c",
-        "errno.h": "c"
+        "errno.h": "c",
+        "cstdlib": "c"
     }
 }
