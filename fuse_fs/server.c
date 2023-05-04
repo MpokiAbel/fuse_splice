@@ -11,14 +11,14 @@ void handle_request(int sockfd)
     int fd = open("../resources/bmc.pdf", O_RDONLY);
 
     struct stat statf;
-
     stat("../resources/bmc.pdf", &statf);
-    printf("file size %ld", statf.st_size);
-    sendfile(sockfd, fd, NULL, statf.st_size);
-    printf("Data Sent\n");
-    char buf[] = {"End"};
-    send(sockfd, buf, sizeof(buf), 0);
-    printf("Data Sent\n");
+    printf("file size %ld\n", statf.st_size);
+
+    size_t size = statf.st_size;
+    send(sockfd, &size, sizeof(size), 0);
+
+    printf("Sent %ld\n", size);
+    sendfile(sockfd, fd, NULL, size);
 };
 
 int main(int argc, char const *argv[])
@@ -39,9 +39,6 @@ int main(int argc, char const *argv[])
         while (1)
         {
             n = recv(connfd, &buf, sizeof(buf), 0);
-            // printf("Request %d received for path %s file descriptor %ld\n", recv_request.type, recv_request.path, recv_request.fh);
-
-            // sleep(5);
             if (n <= 0)
             {
                 perror("recv connefd closed goes to accept");

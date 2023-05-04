@@ -2,25 +2,48 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <stdlib.h>
+
+#define bufer_size 4096
 
 int main(int argc, char const *argv[])
 {
     int sockfd = do_client_connect();
-    char buf[1024];
+    char buf[bufer_size];
 
-    send(sockfd, buf, 1024, 0);
-    int res;
-    int counter = 0;
-    while (1)
+    send(sockfd, buf, bufer_size, 0);
+
+    size_t size;
+    recv(sockfd, &size, sizeof(size), 0);
+
+    long int remain = size;
+    char *data = (char *)malloc(size * sizeof(char));
+    int total_bytes_read = 0;
+    size_t n;
+
+    while (remain > 0)
     {
-        res = recv(sockfd, buf, 1024, 0);
-        if (res != 1024)
+        printf("Total bytes read %d\n", total_bytes_read);
+        n = recv(sockfd, buf, bufer_size, 0);
+        if (n <= 0)
         {
-            printf("%s\n", buf);
-            printf("Total size of file in bytes is %d\n", res + counter * 1024);
             break;
         }
-        counter++;
-        printf("%s", buf);
+
+        memcpy(data + total_bytes_read, buf, n);
+        // printf("%s",buf);
+        remain -= n;
+        total_bytes_read += n;
+        // break;
     }
+
+    int fd;
+    char *filename = "example.pdf";
+    fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    write(fd, data, size);
+    close(fd);
+
+    return 0;
 }

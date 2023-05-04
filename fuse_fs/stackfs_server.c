@@ -10,7 +10,7 @@
 #include <sys/sendfile.h>
 #include "socket.h"
 
-const char *base_dir = "../resources";
+const char *base_dir = "";
 static void
 handle_getattr(int connfd, const char *path)
 {
@@ -99,30 +99,51 @@ static void handle_releasedir(int connfd, uint64_t fh)
     closedir(dir);
 }
 
+void send_file(int fd, int sockfd, int size, off_t off)
+{
+    char buf[size];
+    if (pread(fd, buf, size, off) == -1)
+        perror("send_file pread");
+    int ret = send(sockfd, buf, size, 0);
+    printf("Data sent is %d\n", ret);
+}
 static void handle_read(int connfd, const char *path, uint64_t fh, int flags, size_t size, off_t off)
 {
-    size_t sf;
-    // Get actual file size
+    struct server_response response = {0};
     struct stat statbuf;
-    stat(path, &statbuf);
 
-    int buffer_size;
-    socklen_t optlen = sizeof(buffer_size);
+    if (stat(path, &statbuf) == -1)
+        perror("handle_read stat");
 
-    if (getsockopt(connfd, SOL_SOCKET, SO_SNDBUF, &buffer_size, &optlen) == -1)
+    if (off >= statbuf.st_size)
     {
-        perror("getsockopt");
-        exit(EXIT_FAILURE);
+        response.error = 1;
+        if (send(connfd, &response, sizeof(struct server_response), 0) == -1)
+            perror("handle_read send 1");
+        return;
     }
 
-    printf("Socket receive buffer size is %d bytes\n", buffer_size);
+    size_t data_to_read = statbuf.st_size - off;
 
-    sf = size < statbuf.st_size ? sendfile(connfd, fh, &off, size) : sendfile(connfd, fh, &off, statbuf.st_size);
+    if (size < data_to_read)
+    {
+        response.size = size;
+        if (send(connfd, &response, sizeof(struct server_response), 0) == -1)
+            perror("handle_read send 2");
+        if (sendfile(connfd, fh, &off, size) == -1)
+            perror("handle_read sendfile 1");
+        // send_file(fh, connfd, size, off);
+    }
 
-    if (sf == -1)
-        perror("handle_read sendfile");
-
-    printf("Data sent is %ld \n", sf);
+    else
+    {
+        response.size = data_to_read;
+        if (send(connfd, &response, sizeof(struct server_response), 0) == -1)
+            perror("handle_read send 3");
+        if (sendfile(connfd, fh, &off, data_to_read) == -1)
+            perror("handle_read sendfile 2");
+        // send_file(fh, connfd, data_to_read, off);
+    }
 }
 
 static void handle_access(int connfd, const char *path, int mask)
@@ -227,11 +248,11 @@ int main(int argc, char const *argv[])
     // ToDo: make it accept multiple requests i.e connections
 
     struct requests recv_request = {0};
-    int n;
+    int connfd;
 
     while (1)
     {
-        int connfd = accept(sockfd, NULL, NULL);
+        connfd = accept(sockfd, NULL, NULL);
         if (connfd < 0)
         {
             perror("accept");
@@ -241,13 +262,10 @@ int main(int argc, char const *argv[])
         printf("Accepted the connection\n");
         while (1)
         {
-            n = recv(connfd, &recv_request, sizeof(struct requests), 0);
-            // printf("Request %d received for path %s file descriptor %ld\n", recv_request.type, recv_request.path, recv_request.fh);
-
             // sleep(5);
-            if (n <= 0)
+            if (recv(connfd, &recv_request, sizeof(struct requests), 0) <= 0)
             {
-                perror("recv connefd closed goes to accept");
+                perror("recv");
                 close(connfd);
                 break;
             }

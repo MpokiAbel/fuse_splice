@@ -20,27 +20,24 @@ struct stackfs_data
     int sockfd;
 };
 
-// static int sendcounter = 0;
-// static int recvcounter = 0;
+// static int input_timeout(int filedes, unsigned int seconds)
+// {
+//     fd_set set;
+//     struct timeval timeout;
 
-static int input_timeout(int filedes, unsigned int seconds)
-{
-    fd_set set;
-    struct timeval timeout;
+//     /* Initialize the file descriptor set. */
+//     FD_ZERO(&set);
+//     FD_SET(filedes, &set);
 
-    /* Initialize the file descriptor set. */
-    FD_ZERO(&set);
-    FD_SET(filedes, &set);
+//     /* Initialize the timeout data structure. */
+//     timeout.tv_sec = seconds;
+//     timeout.tv_usec = 0;
 
-    /* Initialize the timeout data structure. */
-    timeout.tv_sec = seconds;
-    timeout.tv_usec = 0;
-
-    /* select returns 0 if timeout, 1 if input available, -1 if error. */
-    return TEMP_FAILURE_RETRY(select(FD_SETSIZE,
-                                     &set, NULL, NULL,
-                                     &timeout));
-}
+//     /* select returns 0 if timeout, 1 if input available, -1 if error. */
+//     return TEMP_FAILURE_RETRY(select(FD_SETSIZE,
+//                                      &set, NULL, NULL,
+//                                      &timeout));
+// }
 
 int stackfs__getattr(const char *path, struct stat *stat, struct fuse_file_info *fi)
 {
@@ -57,20 +54,14 @@ int stackfs__getattr(const char *path, struct stat *stat, struct fuse_file_info 
 
     if (send(data->sockfd, &request, sizeof(struct requests), 0) == -1)
         return -errno;
-    // sendcounter++;
-    // printf("Sent in getattr request of type %d counter %d\n", request.type, sendcounter);
 
     if (recv(data->sockfd, &response, sizeof(struct server_response), 0) == -1)
         return -errno;
-    // recvcounter++;
-    // printf("Received in getattr response of type %d counter %d\n", response.type, recvcounter);
 
     if (response.error < 0)
         return response.error;
 
     *stat = response.stat;
-
-    // printf("Request %d received for path %s file descriptor %ld\n", request.type, request.path, request.fh);
 
 #else
     if (lstat(path, stat) == -1)
@@ -345,40 +336,36 @@ int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
     /* Wait until data becomes available in the socket
         Todo: Errors are not handled yet    */
 
-    int buffer_size;
-    socklen_t optlen = sizeof(buffer_size);
-
-    if (getsockopt(data->sockfd, SOL_SOCKET, SO_RCVBUF, &buffer_size, &optlen) == -1)
-    {
-        perror("getsockopt");
-        exit(EXIT_FAILURE);
-    }
-
-    printf("Socket receive buffer size is %d bytes\n", buffer_size);
-
-    if (input_timeout(data->sockfd, 10) != 1)
-    {
-        printf("Error in select");
-        return 0;
-    }
-
     // Get the size of data received in the socket
-    size_t socketsize = 0;
+    // size_t socketsize = 0;
 
-    if (ioctl(data->sockfd, FIONREAD, &socketsize) == -1)
-        printf("*****************Error occured****************");
+    // if (ioctl(data->sockfd, FIONREAD, &socketsize) == -1)
+    //     printf("*****************Error occured****************");
 
-    printf("Data Requested %ld, Data received %ld\n", size, socketsize);
+    // printf("Data Requested %ld, Data received %ld\n", size, socketsize);
+
+    // Receive the header
+    struct server_response response;
+    if (recv(data->sockfd, &response, sizeof(struct server_response), 0) == -1)
+        return -errno;
+
+    // check if there is an error returned by the server based on the data requested
+    if (response.error == 1)
+        return -EIO;
+
+    // if (input_timeout(data->sockfd, 10) != 1)
+    // {
+    //     printf("Error in select");
+    //     return 0;
+    // }
+    printf("data size is %ld\n", response.size);
     // Setup the buffer
     struct fuse_bufvec *buf = (struct fuse_bufvec *)malloc(sizeof(struct fuse_bufvec));
-    *buf = FUSE_BUFVEC_INIT(size);
-    buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_RETRY;
+    *buf = FUSE_BUFVEC_INIT(response.size);
+    buf->buf[0].flags |= FUSE_BUF_IS_FD;
     buf->buf[0].fd = data->sockfd;
     *bufp = buf;
-    if (ioctl(data->sockfd, FIONREAD, &socketsize) == -1)
-        printf("*****************Error occured****************");
 
-    printf("Data Requested %ld, Data received %ld\n", size, socketsize);
 #else
 
     struct fuse_bufvec *buf = (struct fuse_bufvec *)malloc(sizeof(struct fuse_bufvec));
@@ -468,20 +455,39 @@ int stackfs__read(const char *path, char *buf, size_t size, off_t off,
     if (send(data->sockfd, &request, sizeof(struct requests), 0) == -1)
         return -errno;
 
-    int res = recv(data->sockfd, buf, size, 0);
-    printf("Data Received is %d\n", res);
+    struct server_response response;
+    if (recv(data->sockfd, &response, sizeof(struct server_response), 0) == -1)
+        return -errno;
 
+    if (response.error == -1)
+        return -EIO;
+
+    size_t res;
+    int temp_size = 4096;
+    char temp[temp_size];
+    long int remain = response.size;
+    long int data_read = 0;
+    while (remain > 0)
+    {
+        res = recv(data->sockfd, temp, temp_size, 0);
+        if (res <= 0)
+            break;
+
+        memcpy(buf + data_read, temp, res);
+        remain -= res;
+        data_read += res;
+    }
+
+    return response.size;
 #else
     int res;
 
     (void)path;
-    res = pread(fi->fh, buf, size, offset);
+    res = pread(fi->fh, buf, size, off);
     if (res == -1)
         res = -errno;
-
-#endif
-
     return size;
+#endif
 }
 static struct fuse_operations stackfs__op = {
     .init = stackfs__init,
@@ -493,10 +499,10 @@ static struct fuse_operations stackfs__op = {
     .readlink = stackfs__readlink,
     .releasedir = stackfs__releasedir,
     .release = stackfs__release,
-    .read_buf = stackfs__read_buf,
+    // .read_buf = stackfs__read_buf,
     .flush = stackfs__flush,
     .destroy = stackfs__destroy,
-    // .read = stackfs__read,
+    .read = stackfs__read,
 
 };
 
