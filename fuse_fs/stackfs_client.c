@@ -333,17 +333,6 @@ int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
     if (send(data->sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         return -errno;
 
-    /* Wait until data becomes available in the socket
-        Todo: Errors are not handled yet    */
-
-    // Get the size of data received in the socket
-    // size_t socketsize = 0;
-
-    // if (ioctl(data->sockfd, FIONREAD, &socketsize) == -1)
-    //     printf("*****************Error occured****************");
-
-    // printf("Data Requested %ld, Data received %ld\n", size, socketsize);
-
     // Receive the header
     struct server_response response;
     if (recv(data->sockfd, &response, sizeof(struct server_response), 0) == -1)
@@ -353,16 +342,11 @@ int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
     if (response.error == 1)
         return -EIO;
 
-    // if (input_timeout(data->sockfd, 10) != 1)
-    // {
-    //     printf("Error in select");
-    //     return 0;
-    // }
-    printf("data size is %ld\n", response.size);
+    printf("Hello I execute this data size is %ld\n", response.size);
     // Setup the buffer
     struct fuse_bufvec *buf = (struct fuse_bufvec *)malloc(sizeof(struct fuse_bufvec));
     *buf = FUSE_BUFVEC_INIT(response.size);
-    buf->buf[0].flags |= FUSE_BUF_IS_FD;
+    buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_RETRY;
     buf->buf[0].fd = data->sockfd;
     *bufp = buf;
 
@@ -499,10 +483,10 @@ static struct fuse_operations stackfs__op = {
     .readlink = stackfs__readlink,
     .releasedir = stackfs__releasedir,
     .release = stackfs__release,
-    // .read_buf = stackfs__read_buf,
+    .read_buf = stackfs__read_buf,
     .flush = stackfs__flush,
     .destroy = stackfs__destroy,
-    .read = stackfs__read,
+    // .read = stackfs__read,
 
 };
 
