@@ -10,7 +10,7 @@
 #include <sys/sendfile.h>
 #include "socket.h"
 
-const char *base_dir = "";
+const char *base_dir = "/home";
 static void
 handle_getattr(int connfd, const char *path)
 {

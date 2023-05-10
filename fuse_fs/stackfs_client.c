@@ -342,7 +342,7 @@ int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
     if (response.error == 1)
         return -EIO;
 
-    printf("Hello I execute this data size is %ld\n", response.size);
+    printf("Hello I execute this data size is %ld for path %s\n", response.size, path);
     // Setup the buffer
     struct fuse_bufvec *buf = (struct fuse_bufvec *)malloc(sizeof(struct fuse_bufvec));
     *buf = FUSE_BUFVEC_INIT(response.size);
@@ -473,6 +473,7 @@ int stackfs__read(const char *path, char *buf, size_t size, off_t off,
     return size;
 #endif
 }
+
 static struct fuse_operations stackfs__op = {
     .init = stackfs__init,
     .access = stackfs__access,

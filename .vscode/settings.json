@@ -4,5 +4,9 @@
         "condition_variable": "c",
         "errno.h": "c",
         "cstdlib": "c"
-    }
+    },
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter"
+    },
+    "python.formatting.provider": "none"
 }
