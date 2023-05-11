@@ -40,7 +40,7 @@ for i in range(0, num_of_files_list):
     footer_size_list.append(int(input("Enter footer size for file " + str(i + 1) + ": ")))
 
     # Write the data to a file
-    with open("/home/mpokiabel/Documents/resources/file_" + str(i+1), "w") as file:
+    with open("file_" + str(i+1), "w") as file:
         file.write(
             generate(
                 num_blocks_list[i],
