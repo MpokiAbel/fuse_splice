@@ -42,6 +42,15 @@ int main(int argc, char const *argv[])
         return -1;
     }
 
+    int pipe_size = fcntl(pipefd[1], F_GETPIPE_SZ);
+    if (pipe_size == -1)
+    {
+        perror("fcntl");
+        return 1;
+    }
+
+    printf("Size of the pipe: %d bytes\n", pipe_size);
+
     // Read the payload data from the file to pipe
     int sp, x;
     off_t off_in = 0, off_out = 0;
