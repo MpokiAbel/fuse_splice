@@ -28,12 +28,6 @@ int main(int argc, char const *argv[])
         return -1;
     }
 
-    if ((temp = open("./", O_TMPFILE | O_RDWR, S_IRWXU)) == -1)
-    {
-        perror("Open TEMP");
-        return -1;
-    }
-
     // Fill in the file data structure
     struct file_data data;
     data.metadata = 52;
@@ -48,38 +42,26 @@ int main(int argc, char const *argv[])
         return -1;
     }
 
-    // Get the pipe size
-    int pipe_size = fcntl(pipefd[1], F_GETPIPE_SZ);
-    if (pipe_size == -1)
-    {
-        perror("fcntl");
-        return -1;
-    }
-
-    printf("Size of the pipe: %d bytes\n", pipe_size);
-
-    // Read the payload data from the file to temp
+    // Read the payload data from the file to pipe
     int sp, x;
     off_t off_in = 0, off_out = 0;
-    long blocks = pipe_size / (data.metadata + data.payload + data.footer);
-    while (blocks > 0)
+
+    while (1)
     {
         off_in += data.metadata;
-        sp = copy_file_range(source, &off_in, temp, &off_out, data.payload, 0);
+        printf("Reading from %ld\n", off_in);
+        sp = splice(source, &off_in, pipefd[1], NULL, data.payload, SPLICE_F_NONBLOCK);
+
         if (sp == -1 || sp == 0)
         {
-            perror("copy_file_range");
+            perror("splice");
             break;
         }
 
         off_in += data.footer;
-
-        x++;
-        blocks--;
     }
 
-    sp = splice(temp, NULL, pipefd[1], NULL, data.payload * x, SPLICE_F_MOVE);
-    sp = splice(pipefd[0], NULL, destination, NULL, sp, SPLICE_F_MOVE);
+    sp = splice(pipefd[0], NULL, destination, NULL, off_in, SPLICE_F_MOVE);
 
     printf("spliced data %d \n", sp);
 
