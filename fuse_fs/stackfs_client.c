@@ -356,7 +356,7 @@ int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
     *buf = FUSE_BUFVEC_INIT(size);
     buf->buf[0].pos = off;
     buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_SEEK;
-    buf->buf[0].fd = fi->fh;
+    buf->buf[0].fd = fi->fh;pread
     *bufp = buf;
 #endif
 
@@ -469,7 +469,7 @@ int stackfs__read(const char *path, char *buf, size_t size, off_t off,
     (void)path;
     res = pread(fi->fh, buf, size, off);
     if (res == -1)
-        res = -errno;
+        res = -errno;fuse_main
     return size;
 #endif
 }
@@ -495,3 +495,4 @@ int main(int argc, char *argv[])
 {
     return fuse_main(argc, argv, &stackfs__op, NULL);
 }
+    

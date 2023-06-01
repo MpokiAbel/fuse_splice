@@ -3,7 +3,12 @@
         "memory": "c",
         "condition_variable": "c",
         "errno.h": "c",
-        "cstdlib": "c"
+        "cstdlib": "c",
+        "fcntl.h": "c",
+        "stdlib.h": "c",
+        "syscall.h": "c",
+        "stat.h": "c",
+        "kernel.h": "c"
     },
     "[python]": {
         "editor.defaultFormatter": "ms-python.black-formatter"
