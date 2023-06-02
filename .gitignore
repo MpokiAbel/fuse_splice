@@ -1,2 +1,4 @@
 mnt/*
 *.out
+.vscode
+.github

@@ -10,7 +10,7 @@
 #include <sys/sendfile.h>
 #include "socket.h"
 
-const char *base_dir = "/home";
+const char *base_dir = "/home/mpokiabel/Documents/fuse/root";
 static void
 handle_getattr(int connfd, const char *path)
 {
@@ -99,51 +99,43 @@ static void handle_releasedir(int connfd, uint64_t fh)
     closedir(dir);
 }
 
-void send_file(int fd, int sockfd, int size, off_t off)
+static int send_file(int fd, int sockfd, off_t off, struct server_response response)
 {
-    char buf[size];
-    if (pread(fd, buf, size, off) == -1)
-        perror("send_file pread");
-    int ret = send(sockfd, buf, size, 0);
-    printf("Data sent is %d\n", ret);
+
+    int error;
+    int buf_size = response.size + sizeof(response);
+
+    char *buf = (char *)malloc(buf_size);
+    bzero(buf, buf_size);
+
+    error = pread(fd, buf + sizeof(response), response.size, off);
+
+    response.error = error;
+    response.size = error;
+    
+    memcpy(buf, &response, sizeof(response));
+    // Send only when there is something to send
+    if (error)
+        error = send(sockfd, buf, error, 0);
+
+    if (error == -1)
+        perror("send_file send");
+
+    free(buf);
+    return error;
 }
+
 static void handle_read(int connfd, const char *path, uint64_t fh, int flags, size_t size, off_t off)
 {
     struct server_response response = {0};
-    struct stat statbuf;
+    int error;
 
-    if (stat(path, &statbuf) == -1)
-        perror("handle_read stat");
+    response.size = size;
+    strcpy(response.path, path);
+    error = send_file(fh, connfd, off, response);
 
-    if (off >= statbuf.st_size)
-    {
-        response.error = 1;
-        if (send(connfd, &response, sizeof(struct server_response), 0) == -1)
-            perror("handle_read send 1");
-        return;
-    }
-
-    size_t data_to_read = statbuf.st_size - off;
-
-    if (size < data_to_read)
-    {
-        response.size = size;
-        if (send(connfd, &response, sizeof(struct server_response), 0) == -1)
-            perror("handle_read send 2");
-        if (sendfile(connfd, fh, &off, size) == -1)
-            perror("handle_read sendfile 1");
-        // send_file(fh, connfd, size, off);
-    }
-
-    else
-    {
-        response.size = data_to_read;
-        if (send(connfd, &response, sizeof(struct server_response), 0) == -1)
-            perror("handle_read send 3");
-        if (sendfile(connfd, fh, &off, data_to_read) == -1)
-            perror("handle_read sendfile 2");
-        // send_file(fh, connfd, data_to_read, off);
-    }
+    printf("offset %ld, size %ld, data to read %ld error %d\n", off, size, response.size, errno);
+fin:
 }
 
 static void handle_access(int connfd, const char *path, int mask)

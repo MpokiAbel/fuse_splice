@@ -321,6 +321,9 @@ int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
 #ifdef ENABLE_REMOTE
     struct stackfs_data *data = (struct stackfs_data *)fuse_get_context()->private_data;
 
+    /*
+        Prepares the requests and send it over the networks
+    */
     struct requests request;
     memset(&request, 0, sizeof(struct requests));
     strcpy(request.path, path);
@@ -333,20 +336,29 @@ int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
     if (send(data->sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
         return -errno;
 
-    // Receive the header
+    /*
+        Receive the header
+    */
     struct server_response response;
     if (recv(data->sockfd, &response, sizeof(struct server_response), 0) == -1)
         return -errno;
 
-    // check if there is an error returned by the server based on the data requested
-    if (response.error == 1)
+    /*
+        check if there is an error returned by the server based on the data requested
+    */
+
+    if (response.error == -1)
         return -EIO;
 
     printf("Hello I execute this data size is %ld for path %s\n", response.size, path);
-    // Setup the buffer
+    /* 
+        Setup the buffer
+     */
     struct fuse_bufvec *buf = (struct fuse_bufvec *)malloc(sizeof(struct fuse_bufvec));
-    *buf = FUSE_BUFVEC_INIT(response.size);
-    buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_RETRY;
+    *buf = FUSE_BUFVEC_INIT(150002);
+    buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_SECTION;
+    buf->buf[0].metadata = 102;
+    buf->buf[0].footer = 102;
     buf->buf[0].fd = data->sockfd;
     *bufp = buf;
 
@@ -356,8 +368,9 @@ int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
     *buf = FUSE_BUFVEC_INIT(size);
     buf->buf[0].pos = off;
     buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_SEEK;
-    buf->buf[0].fd = fi->fh;pread
-    *bufp = buf;
+    buf->buf[0].fd = fi->fh;
+    pread
+        *bufp = buf;
 #endif
 
     return 0;
@@ -469,8 +482,8 @@ int stackfs__read(const char *path, char *buf, size_t size, off_t off,
     (void)path;
     res = pread(fi->fh, buf, size, off);
     if (res == -1)
-        res = -errno;fuse_main
-    return size;
+        res = -errno;
+    fuse_main return size;
 #endif
 }
 
@@ -495,4 +508,3 @@ int main(int argc, char *argv[])
 {
     return fuse_main(argc, argv, &stackfs__op, NULL);
 }
-    
