@@ -351,14 +351,15 @@ int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
         return -EIO;
 
     printf("Hello I execute this data size is %ld for path %s\n", response.size, path);
-    /* 
+    /*
         Setup the buffer
      */
     struct fuse_bufvec *buf = (struct fuse_bufvec *)malloc(sizeof(struct fuse_bufvec));
-    *buf = FUSE_BUFVEC_INIT(150002);
-    buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_SECTION;
-    buf->buf[0].metadata = 102;
-    buf->buf[0].footer = 102;
+    *buf = FUSE_BUFVEC_INIT(response.size);
+    // buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_SECTION;
+    // buf->buf[0].metadata = 102;
+    // buf->buf[0].footer = 102;
+    buf->buf[0].flags |= FUSE_BUF_IS_FD;
     buf->buf[0].fd = data->sockfd;
     *bufp = buf;
 
@@ -497,10 +498,10 @@ static struct fuse_operations stackfs__op = {
     .readlink = stackfs__readlink,
     .releasedir = stackfs__releasedir,
     .release = stackfs__release,
-    .read_buf = stackfs__read_buf,
+    // .read_buf = stackfs__read_buf,
     .flush = stackfs__flush,
     .destroy = stackfs__destroy,
-    // .read = stackfs__read,
+    .read = stackfs__read,
 
 };
 

@@ -99,24 +99,24 @@ static void handle_releasedir(int connfd, uint64_t fh)
     closedir(dir);
 }
 
-static int send_file(int fd, int sockfd, off_t off, struct server_response response)
+static int send_file(int fd, int sockfd, off_t off, struct server_response *response)
 {
 
     int error;
-    int buf_size = response.size + sizeof(response);
+    int buf_size = response->size + sizeof(struct server_response);
 
     char *buf = (char *)malloc(buf_size);
     bzero(buf, buf_size);
 
-    error = pread(fd, buf + sizeof(response), response.size, off);
+    error = pread(fd, buf + sizeof(struct server_response), response->size, off);
 
-    response.error = error;
-    response.size = error;
-    
-    memcpy(buf, &response, sizeof(response));
+    response->error = error > 0 ? 0 : error;
+    response->size = error < 0 ? 0 : error;
+
+    memcpy(buf, response, sizeof(struct server_response));
     // Send only when there is something to send
     if (error)
-        error = send(sockfd, buf, error, 0);
+        error = send(sockfd, buf, buf_size, 0);
 
     if (error == -1)
         perror("send_file send");
@@ -128,14 +128,12 @@ static int send_file(int fd, int sockfd, off_t off, struct server_response respo
 static void handle_read(int connfd, const char *path, uint64_t fh, int flags, size_t size, off_t off)
 {
     struct server_response response = {0};
-    int error;
 
     response.size = size;
     strcpy(response.path, path);
-    error = send_file(fh, connfd, off, response);
+    send_file(fh, connfd, off, &response);
 
     printf("offset %ld, size %ld, data to read %ld error %d\n", off, size, response.size, errno);
-fin:
 }
 
 static void handle_access(int connfd, const char *path, int mask)
