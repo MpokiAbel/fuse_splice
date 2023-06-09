@@ -19,7 +19,8 @@ There are three maps available i.e
 	3. handler - contains the associated handler programs to be executed for a specified OPCODE
 
 Example of Kernel Requests Execution Sequence. 
-**Case study 1 Lookup Requests.**
+
+**Case study 1. Lookup Requests.**
 
 	1. Fetches the lookup cached entry from entry_map 
 	2. The handler returns UPCALL(-ENOSYS) if there is no entry
@@ -29,7 +30,7 @@ Example of Kernel Requests Execution Sequence.
 	6. When the out is populated with the required parameters and inode information  bpf_extfuse_write_args is used to return the 				result to the FUSE DRIVER.
 	7. Appropriate entry count is atomically incremented.
 	
-**Case Study 2 Read Requests.**
+**Case Study 2. Read Requests.**
 
 	1. Feches the attribute entry from attr_map.
 	2. If present continue , otherwise returns UPCALL(-ENOSYS) if not
