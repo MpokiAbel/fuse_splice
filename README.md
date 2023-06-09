@@ -1,4 +1,4 @@
-# fuse
+# Fuse
 
 This is the begining of my project "BPF based optimization for Remote Fuse filesystem"
 
@@ -10,13 +10,15 @@ The ebpf context contains the following:
 	2. Array of fds representing the created maps.
 
 
-There are three maps available i.e 
+There are three maps available i.e
+
 	1. entry_map,	
 	2. attr_map 
 	3. handler - contains the associated handler programs to be executed for a specified OPCODE
 
 Example of Kernel Requests Execution Sequence. 
 **Case study 1 Lookup Requests.**
+
 	1. Fetches the lookup cached entry from entry_map 
 	2. The handler returns UPCALL(-ENOSYS) if there is no entry
 	3. If the entry is available it prepares for output
@@ -26,17 +28,19 @@ Example of Kernel Requests Execution Sequence.
 	7. Appropriate entry count is atomically incremented.
 	
 **Case Study 2 Read Requests.**
+
 	1. Feches the attribute entry from attr_map.
 	2. If present continue , otherwise returns UPCALL(-ENOSYS) if not
 	3. Checks if its passthrough, returns PASSTHRU(1) otherwise returns UPCALL(-ENOSYS)
 	
 
 
-**Hint: **
+**Hint:**
+
 	1. bpf_extfuse_write_args wraps probe_kernel_write  
 	2. bpf_extfuse_read_args wraps probe_kernel_read
 
-# My notes
+# My Other notes notes
 I have two designs at the moment.
 
 my first design is based on looping on the internal splicing implementation while
