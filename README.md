@@ -138,6 +138,49 @@ buf->buf[0].fd = data->sockfd;
 
 # In focus splice_write dev operation.
 
+In FUSE, splice_write device operation is responsible to call the the function fuse_dev_splice_write. This callback function does the following:
+
+	1. fetch the corresponding pointer of fuse_dev, a Fuse device instance which contains associated connection for this device , processing queue etc.
+	2. Extract the pointer to pipe's pipe buffer.
+	3. Initiate the fuse_copy_state instance.
+	4. Call the fuse_do_splice_write
+
+fuse_copy state is an instance which represents what it is "the copy state". It includes the following:  
+
+```
+struct fuse_copy_state {
+	int write;
+	struct fuse_req *req;
+	struct iov_iter *iter;
+	struct pipe_buffer *pipebufs;
+	struct pipe_buffer *currbuf;
+	struct pipe_inode_info *pipe;
+	unsigned long nr_segs;
+	struct page *pg;
+	unsigned len;
+	unsigned offset;
+	unsigned move_pages : 1;
+	unsigned header; // added to support payload spliting 
+	unsigned footer; // added to support payload spliting 
+};
+
+```
+- Methods are written to copy the data from pipe_buffers using the above structure. The pipebufs contains the first address of the first pipe buffer in the linked list of the buffers where the data from user reside.
+
+fuse_do_splice_write does the following:Write a single reply to a request.  
+ * First the header is copied from the write buffer (obtained from fuse_copy_state, with currbuf pointing to the first buffer).  
+ * The request is then searched on the processing List by the unique ID found in the header.  
+ * If found, then remove It from the list
+ * copy the rest of the buffer to the request.
+ * The request is finished by calling fuse_request_end().
+
+# Payload Splitting ?
+
+The request is a big structure which contains the the structure fuse_args which is the most important when writing data to the device file. The structure fuse_args pages is used to retrive the pointer to the struct fuse_args_pages which contains the pages that were initially allocated by the VFS, when read request was initiated.
+
+Once these fuse kernel pages have been retrieved the appropriated function is used either to copy or move the pages from the pipe to the VFS fuse pages.
+
+The choice of embedding the header and footer seize information tp fuse_copy_state is no accident ,as the specific instance of this structure is involved in moving the pages to the VFS fuse pages.
 
 
 
@@ -145,9 +188,9 @@ buf->buf[0].fd = data->sockfd;
 
 
 
+# SECTION 2.
 
-
-# SECTION 2. ExtFUSE updates
+# ExtFUSE updates
 
 The user space program gets the ebpf context.
 
