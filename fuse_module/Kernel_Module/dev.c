@@ -651,7 +651,8 @@ struct fuse_copy_state {
 	unsigned len;
 	unsigned offset;
 	unsigned move_pages : 1;
-	int split_payload;
+	unsigned header;
+	unsigned footer;
 };
 
 static void fuse_copy_init(struct fuse_copy_state *cs, int write,
@@ -964,8 +965,8 @@ static int fuse_copy_page(struct fuse_copy_state *cs, struct page **pagep,
 	return 0;
 }
 
-static int return_payload(struct fuse_args_pages *ap, unsigned header,
-			  unsigned footer, unsigned nbytes)
+static int fuse_split_payload(struct fuse_args_pages *ap, unsigned header,
+			      unsigned footer, unsigned nbytes)
 {
 	struct page *temp_page = alloc_page(GFP_KERNEL);
 	void *temp_page_mem = kmap_local_page(temp_page);
@@ -1031,11 +1032,12 @@ static int fuse_copy_pages(struct fuse_copy_state *cs, unsigned nbytes,
 		nbytes -= count;
 	}
 
-	if (cs->split_payload) {
+	if (cs->header || cs->footer) {
 		printk("Number of bytes %d\n", last_bytes);
 		last_bytes = (last_bytes == 0) ? PAGE_SIZE : last_bytes;
-		return_payload(ap, 102, 102, last_bytes);
+		fuse_split_payload(ap, cs->header, cs->footer, last_bytes);
 	}
+
 	return 0;
 }
 
@@ -1861,9 +1863,7 @@ static int copy_out_args(struct fuse_copy_state *cs, struct fuse_args *args,
 			 unsigned nbytes)
 {
 	unsigned reqsize = sizeof(struct fuse_out_header);
-
 	reqsize += fuse_len_args(args->out_numargs, args->out_args);
-	printk("copy_out_args \n");
 
 	if (reqsize < nbytes || (reqsize > nbytes && !args->out_argvar))
 		return -EINVAL;
@@ -1871,7 +1871,6 @@ static int copy_out_args(struct fuse_copy_state *cs, struct fuse_args *args,
 		struct fuse_arg *lastarg =
 			&args->out_args[args->out_numargs - 1];
 		unsigned diffsize = reqsize - nbytes;
-		printk("copy_out_args \n");
 
 		if (diffsize > lastarg->size)
 			return -EINVAL;
@@ -1898,7 +1897,6 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 	struct fuse_req *req;
 	struct fuse_out_header oh;
 
-	printk("I execute do_write \n");
 	err = -EINVAL;
 	if (nbytes < sizeof(struct fuse_out_header))
 		goto out;
@@ -1907,13 +1905,10 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 	if (err)
 		goto copy_finish;
 
-	printk("I execute do_write \n");
-
 	err = -EINVAL;
 	if (oh.len != nbytes) {
 		goto copy_finish;
 	}
-	printk("I execute do_write \n");
 
 	/*
 	 * Zero oh.unique indicates unsolicited notification message
@@ -1923,18 +1918,15 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 		err = fuse_notify(fc, oh.error, nbytes - sizeof(oh), cs);
 		goto out;
 	}
-	printk("I execute do_write \n");
 
 	err = -EINVAL;
 	if (oh.error <= -512 || oh.error > 0)
 		goto copy_finish;
-	printk("I execute do_write \n");
 
 	spin_lock(&fpq->lock);
 	req = NULL;
 	if (fpq->connected)
 		req = request_find(fpq, oh.unique & ~FUSE_INT_REQ_BIT);
-	printk("I execute do_write \n");
 
 	err = -ENOENT;
 	if (!req) {
@@ -1959,7 +1951,6 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 
 		goto copy_finish;
 	}
-	printk("I execute do_write \n");
 
 	clear_bit(FR_SENT, &req->flags);
 	list_move(&req->list, &fpq->io);
@@ -1969,14 +1960,19 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 	cs->req = req;
 	if (!req->args->page_replace)
 		cs->move_pages = 0;
-	printk("I execute do_write 8\n");
 
 	if (oh.error)
 		err = nbytes != sizeof(oh) ? -EINVAL : 0;
-	else
+	else {
+		// Define the header and footer of the data.
+		if (oh.header || oh.footer) {
+			cs->header = oh.header;
+			cs->footer = oh.footer;
+		}
 		err = copy_out_args(cs, req->args, nbytes);
+	}
+
 	fuse_copy_finish(cs);
-	printk("I execute do_write 9\n");
 
 	spin_lock(&fpq->lock);
 	clear_bit(FR_LOCKED, &req->flags);
@@ -1987,7 +1983,6 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 	if (!test_bit(FR_PRIVATE, &req->flags))
 		list_del_init(&req->list);
 	spin_unlock(&fpq->lock);
-	printk("I execute do_write 10\n");
 
 	fuse_request_end(req);
 out:
@@ -2005,12 +2000,11 @@ static ssize_t fuse_dev_write(struct kiocb *iocb, struct iov_iter *from)
 
 	if (!fud)
 		return -EPERM;
-	printk("I execute dev_write \n");
+
 	if (!user_backed_iter(from))
 		return -EINVAL;
 
 	fuse_copy_init(&cs, 0, from);
-	printk("I execute dev_write \n");
 
 	return fuse_dev_do_write(fud, &cs, iov_iter_count(from));
 }
@@ -2019,16 +2013,15 @@ static ssize_t fuse_dev_write(struct kiocb *iocb, struct iov_iter *from)
 static int extract_payload(struct fuse_copy_state cs)
 {
 	int err;
-	size_t header_size = 102;
-	size_t footer_size = 102;
+	size_t header = 0;
+	size_t footer = 0;
 	unsigned offset;
-	struct pipe_buffer *pr_buff = cs.pipebufs;
+	// struct pipe_buffer *pr_buff = cs.pipebufs;
 	struct pipe_buffer *de_bufs = NULL;
 	struct fuse_copy_state mcs;
 	struct fuse_out_header oh;
-
-	// This is the buffer that will hold both the header and the footer
-	char *buf = kmalloc(header_size + footer_size, GFP_KERNEL);
+	void *user_buff;
+	void *buf;
 
 	/* 	Fetch the Fuse Out header, this is needed because we need 
 		to modify the length of data to be read */
@@ -2038,8 +2031,20 @@ static int extract_payload(struct fuse_copy_state cs)
 		fuse_copy_finish(&cs);
 		return -1;
 	}
+
+	header = oh.header;
+	footer = oh.footer;
+
+	if (!header || !footer)
+		return -1;
+
+	buf = kmalloc(header + footer, GFP_KERNEL);
+
+	user_buff = (void *)oh.mem;
+	printk("Header Size %ld, Footer Size %ld\n", header, footer);
+
 	//Fetch the header of the message
-	err = fuse_copy_one(&cs, buf, header_size);
+	err = fuse_copy_one(&cs, buf, header);
 	if (err) {
 		fuse_copy_finish(&cs);
 		return -1;
@@ -2050,45 +2055,33 @@ static int extract_payload(struct fuse_copy_state cs)
 
 	de_bufs = cs.pipebufs + cs.nr_segs - 1;
 
-	if (de_bufs->len < footer_size)
+	if (de_bufs->len < footer)
 		return -1;
 
 	/*	Copy data from the last pipe buffer , 
 		This requires proper setting of the offset in the pipe buffers*/
 	fuse_copy_init(&mcs, 0, NULL);
 	offset = de_bufs->offset;
-	de_bufs->offset = offset + (de_bufs->len - footer_size);
+	de_bufs->offset = offset + (de_bufs->len - footer);
 	mcs.pipebufs = de_bufs;
 	mcs.nr_segs = 1;
 
-	err = fuse_copy_one(&mcs, buf + header_size, footer_size);
+	//Fetch the footer of the message
+	err = fuse_copy_one(&mcs, buf + header, footer);
 	if (err) {
 		fuse_copy_finish(&mcs);
 		return -1;
 	}
 
 	/*Prints the contents of the header and footer of the file*/
-	printk("Fuse: %s\n", buf);
-
-	/*Prints the length of the data passed by the fuse header*/
-	// printk("Size read from the header %d, header %d , footer %d\n", oh.len,
-	//        oh.header, oh.footer);
-
-	/*Here we need to adjust the pipe buffers offsets and fuse header size accordingly*/
-
-	oh.len -= (header_size + footer_size);
-
-	fuse_copy_init(&mcs, 1, NULL);
-	mcs.pipebufs = pr_buff;
-	mcs.nr_segs = 1;
-
-	err = fuse_copy_one(&mcs, &oh, sizeof(oh));
-	if (err) {
-		fuse_copy_finish(&mcs);
-		return -1;
+	printk("Fuse: %s\n", (char *)buf);
+	
+	if (copy_to_user(user_buff, buf, header + footer)) {
+		printk("copy to user failed");
+		goto out;
 	}
-	// printk("The last Returns\n" );
-	// Reset the offset of the last block
+
+out:
 	de_bufs->offset = offset;
 	kfree(buf);
 
@@ -2169,7 +2162,6 @@ static ssize_t fuse_dev_splice_write(struct pipe_inode_info *pipe,
 	cs.pipebufs = bufs;
 	cs.nr_segs = nbuf;
 	cs.pipe = pipe;
-	cs.split_payload = 1;
 
 	if (flags & SPLICE_F_MOVE)
 		cs.move_pages = 1;
