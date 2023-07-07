@@ -188,7 +188,7 @@ The choice of embedding the header and footer seize information tp fuse_copy_sta
 
 
 
-# SECTION 2.
+# SECTION 2.  - This part onwards are just part of my side note, no need to read them ;)
 
 # ExtFUSE updates
 
