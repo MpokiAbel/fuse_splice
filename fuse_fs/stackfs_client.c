@@ -20,25 +20,6 @@ struct stackfs_data
     int sockfd;
 };
 
-// static int input_timeout(int filedes, unsigned int seconds)
-// {
-//     fd_set set;
-//     struct timeval timeout;
-
-//     /* Initialize the file descriptor set. */
-//     FD_ZERO(&set);
-//     FD_SET(filedes, &set);
-
-//     /* Initialize the timeout data structure. */
-//     timeout.tv_sec = seconds;
-//     timeout.tv_usec = 0;
-
-//     /* select returns 0 if timeout, 1 if input available, -1 if error. */
-//     return TEMP_FAILURE_RETRY(select(FD_SETSIZE,
-//                                      &set, NULL, NULL,
-//                                      &timeout));
-// }
-
 int stackfs__getattr(const char *path, struct stat *stat, struct fuse_file_info *fi)
 {
     (void)fi;
@@ -53,13 +34,22 @@ int stackfs__getattr(const char *path, struct stat *stat, struct fuse_file_info 
     request.type = GETATTR;
 
     if (send(data->sockfd, &request, sizeof(struct requests), 0) == -1)
+    {
+        printf("ERROR: Send Getattr\n");
         return -errno;
+    }
 
     if (recv(data->sockfd, &response, sizeof(struct server_response), 0) == -1)
+    {
+        printf("ERROR: Receive Getattr\n");
         return -errno;
+    }
 
     if (response.error < 0)
+    {
+        printf("ERROR: Other Getattr\n");
         return response.error;
+    }
 
     *stat = response.stat;
 
@@ -82,14 +72,23 @@ int stackfs__open(const char *path, struct fuse_file_info *fi)
     request.flags = fi->flags;
 
     if (send(data->sockfd, &request, sizeof(struct requests), 0) == -1)
+    {
+        printf("ERROR: Send Open\n");
         return -errno;
+    }
 
     struct server_response response;
     if (recv(data->sockfd, &response, sizeof(struct server_response), 0) == -1)
+    {
+        printf("ERROR: Receive Open\n");
         return -errno;
+    }
 
     if (response.error < 0)
+    {
+        printf("ERROR: Other Getattr\n");
         return response.error;
+    }
 
     fi->fh = response.fh;
 
@@ -116,20 +115,26 @@ int stackfs__opendir(const char *path, struct fuse_file_info *fi)
     request.type = OPENDIR;
 
     if (send(data->sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
+    {
+        printf("ERROR: Send Opendir\n");
         return -errno;
+    }
 
     // sendcounter++;
     // printf("Sent in opendir request of type %d counter %d\n", request.type, sendcounter);
 
     struct server_response response;
     if (recv(data->sockfd, &response, sizeof(struct server_response), 0) == -1)
+    {
+        printf("ERROR: Send Open\n");
         return -errno;
+    }
     // recvcounter++;
     // printf("Received in opendir response of type %d counter %d\n", response.type, recvcounter);
 
     if (response.error < 0)
     {
-        // printf("Errors in opendir error %d\n", response.error);
+        printf("Errors in opendir error %d\n", response.error);
         return response.error;
     }
     fi->fh = response.fh;
@@ -169,16 +174,26 @@ int stackfs__readdir(const char *path, void *buff, fuse_fill_dir_t filler, off_t
     request.flags = flags;
 
     if (send(data->sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
+    {
+        printf("ERROR: Send readdir\n");
         return -errno;
+    }
 
     while (1)
     {
         if (recv(data->sockfd, &response, sizeof(struct server_response), 0) < 0)
+        {
+            printf("ERROR: Receive readdir\n");
             return -errno;
+        }
         else if (strcmp(response.path, "End") == 0)
             break;
         else if (strcmp(response.path, "Error") == 0)
+        {
+            printf("ERROR: Other readdir\n");
             return -EBADF;
+        }
+
         filler(buff, response.path, &response.stat, 0, FUSE_FILL_DIR_PLUS);
     }
 
@@ -219,10 +234,16 @@ int stackfs__readlink(const char *path, char *buff, size_t size)
     request.size = size;
 
     if (send(data->sockfd, &request, sizeof(struct requests), 0) == -1)
+    {
+        printf("ERROR: Send readlink\n");
         return -errno;
+    }
 
     if (recv(data->sockfd, buff, size, 0) == -1)
-        return errno;
+    {
+        printf("ERROR: Receive readlink\n");
+        return -errno;
+    }
 
 #else
 
@@ -248,8 +269,10 @@ int stackfs__releasedir(const char *path, struct fuse_file_info *fi)
     request.type = RELEASEDIR;
 
     if (send(data->sockfd, &request, sizeof(struct requests), 0) == -1)
+    {
+        printf("ERROR: Send realeasedir\n");
         return -errno;
-
+    }
 #else
     closedir((DIR *)fi->fh);
 #endif
@@ -269,7 +292,10 @@ int stackfs__release(const char *path, struct fuse_file_info *fi)
     request.type = RELEASE;
 
     if (send(data->sockfd, &request, sizeof(struct requests), 0) == -1)
+    {
+        printf("ERROR: Send release\n");
         return -errno;
+    }
 
 #else
 
@@ -293,17 +319,26 @@ int stackfs__access(const char *path, int mask)
     request.type = ACCESS;
     request.mask = mask;
     if (send(data->sockfd, &request, sizeof(struct requests), 0) == -1)
+    {
+        printf("ERROR: Send access\n");
         return -errno;
+    }
     // sendcounter++;
     // printf("Sent in access request of type %d counter %d\n", request.type, sendcounter);
 
     struct server_response response;
     if (recv(data->sockfd, &response, sizeof(struct server_response), 0) < 0)
+    {
+        printf("ERROR: Receive access\n");
         return -errno;
+    }
     // recvcounter++;
     // printf("Received in Access response of type %d counter %d\n", response.type, recvcounter);
     if (response.error < 0)
+    {
+        printf("ERROR: Other Access\n");
         return response.error;
+    }
 
 #else
 
@@ -334,32 +369,44 @@ int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
     request.off = off;
 
     if (send(data->sockfd, &request, sizeof(struct requests), 0) != sizeof(struct requests))
+    {
+        printf("ERROR: Send read_buf\n");
         return -errno;
+    }
 
     /*
         Receive the header
     */
     struct server_response response;
     if (recv(data->sockfd, &response, sizeof(struct server_response), 0) == -1)
+    {
+        printf("ERROR: Receive readdir\n");
         return -errno;
+    }
 
     /*
         check if there is an error returned by the server based on the data requested
     */
 
     if (response.error == -1)
+    {
+        printf("ERROR: Other read_buf\n");
         return -EIO;
+    }
 
-    printf("Hello I execute this data size is %ld for path %s\n", response.size, path);
+    // printf("Hello I execute this data size is %ld for path %s\n", response.size, path);
     /*
         Setup the buffer
      */
     struct fuse_bufvec *buf = (struct fuse_bufvec *)malloc(sizeof(struct fuse_bufvec));
     *buf = FUSE_BUFVEC_INIT(response.size);
-    // buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_SECTION;
-    // buf->buf[0].metadata = 102;
-    // buf->buf[0].footer = 102;
-    buf->buf[0].flags |= FUSE_BUF_IS_FD;
+
+    // Size of Metadata in bytes
+    buf->buf[0].metadata = 102;
+    buf->buf[0].footer = 102;
+
+    // Define FUSE_BUF_FD_SECTION and Pass the FD to splice
+    buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_SECTION;
     buf->buf[0].fd = data->sockfd;
     *bufp = buf;
 
@@ -370,8 +417,7 @@ int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
     buf->buf[0].pos = off;
     buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_SEEK;
     buf->buf[0].fd = fi->fh;
-    pread
-        *bufp = buf;
+    *bufp = buf;
 #endif
 
     return 0;
@@ -409,15 +455,24 @@ int stackfs__flush(const char *path, struct fuse_file_info *fi)
     request.type = FLUSH;
 
     if (send(data->sockfd, &request, sizeof(struct requests), 0) == -1)
+    {
+        printf("ERROR: Send flush\n");
         return -errno;
+    }
 
     struct server_response response;
 
     if (recv(data->sockfd, &response, sizeof(struct server_response), 0) == -1)
+    {
+        printf("ERROR: Receive flush\n");
         return -errno;
+    }
 
     if (response.error < 0)
+    {
+        printf("ERROR: Other flush\n");
         return response.error;
+    }
 
 #else
     (void)path;
@@ -484,7 +539,7 @@ int stackfs__read(const char *path, char *buf, size_t size, off_t off,
     res = pread(fi->fh, buf, size, off);
     if (res == -1)
         res = -errno;
-    fuse_main return size;
+    return size;
 #endif
 }
 
@@ -498,11 +553,10 @@ static struct fuse_operations stackfs__op = {
     .readlink = stackfs__readlink,
     .releasedir = stackfs__releasedir,
     .release = stackfs__release,
-    // .read_buf = stackfs__read_buf,
+    .read = stackfs__read,
+    .read_buf = stackfs__read_buf,
     .flush = stackfs__flush,
     .destroy = stackfs__destroy,
-    .read = stackfs__read,
-
 };
 
 int main(int argc, char *argv[])

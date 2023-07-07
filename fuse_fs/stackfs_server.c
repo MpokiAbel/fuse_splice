@@ -31,10 +31,11 @@ static void handle_open(int connfd, const char *path, int flags)
 
 {
     struct server_response response = {0};
-
+    response.type = OPEN;
     if ((response.fh = open(path, flags)) == -1)
     {
         perror("handle_open Open");
+
         response.error = -errno;
     }
     if (send(connfd, &response, sizeof(struct server_response), 0) == -1)
@@ -61,7 +62,8 @@ static void handle_readdir(int connfd, const char *path, uint64_t fh, int flags)
 {
     DIR *dir = (DIR *)fh;
     struct dirent *de;
-    struct server_response response;
+    struct server_response response = {0};
+    response.type = READDIR;
     size_t count = 0;
     if (!dir)
     {
@@ -104,7 +106,7 @@ static int send_file(int fd, int sockfd, off_t off, struct server_response *resp
 
     int error;
     int buf_size = response->size + sizeof(struct server_response);
-
+    response->type = READ;
     char *buf = (char *)malloc(buf_size);
     bzero(buf, buf_size);
 
@@ -139,7 +141,7 @@ static void handle_read(int connfd, const char *path, uint64_t fh, int flags, si
 static void handle_access(int connfd, const char *path, int mask)
 {
 
-    struct server_response response;
+    struct server_response response = {0};
     response.type = ACCESS;
 
     if (access(path, mask) == -1)
@@ -167,7 +169,7 @@ static void handle_flush(int connfd, const char *path, uint64_t fh)
         response.error = -errno;
         perror("handle_flush close");
     }
-
+    response.type = FLUSH;
     if (send(connfd, &response, sizeof(struct server_response), 0) == -1)
         perror("handle_flush send");
 }
