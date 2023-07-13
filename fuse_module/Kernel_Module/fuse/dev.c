@@ -651,8 +651,8 @@ struct fuse_copy_state {
 	unsigned len;
 	unsigned offset;
 	unsigned move_pages : 1;
-	unsigned header;
-	unsigned footer;
+	// unsigned header;
+	// unsigned footer;
 };
 
 static void fuse_copy_init(struct fuse_copy_state *cs, int write,
@@ -1017,6 +1017,17 @@ static int fuse_copy_pages(struct fuse_copy_state *cs, unsigned nbytes,
 	struct fuse_req *req = cs->req;
 	struct fuse_args_pages *ap = container_of(req->args, typeof(*ap), args);
 	unsigned last_bytes = 0;
+	unsigned header = req->out.h.header;
+	unsigned footer = req->out.h.footer;
+	// unsigned len = req->out.h.len - sizeof(struct fuse_out_header);
+	// unsigned size_rem = nbytes - len;
+	// unsigned last_bytes = ap->descs[ap->num_pages - 1].length - size_rem;
+
+	// if (header || footer) {
+	// 	printk("Data Size %d, Empty Space %d, Last Bytes %d \n", len,
+	// 	       size_rem, last_bytes);
+	// 	// fuse_split_payload(ap, header, footer, last_bytes);
+	// }
 
 	for (i = 0; i < ap->num_pages && (nbytes || zeroing); i++) {
 		int err;
@@ -1032,10 +1043,9 @@ static int fuse_copy_pages(struct fuse_copy_state *cs, unsigned nbytes,
 		nbytes -= count;
 	}
 
-	if (cs->header || cs->footer) {
-		printk("Number of bytes %d\n", last_bytes);
-		last_bytes = (last_bytes == 0) ? PAGE_SIZE : last_bytes;
-		fuse_split_payload(ap, cs->header, cs->footer, last_bytes);
+	if (header || footer) {
+		// printk("Last Bytes %d \n", last_bytes);
+		fuse_split_payload(ap, header, footer, last_bytes);
 	}
 
 	return 0;
@@ -1395,7 +1405,6 @@ static ssize_t fuse_dev_read(struct kiocb *iocb, struct iov_iter *to)
 	struct fuse_copy_state cs;
 	struct file *file = iocb->ki_filp;
 	struct fuse_dev *fud = fuse_get_dev(file);
-
 	if (!fud)
 		return -EPERM;
 
@@ -1965,10 +1974,10 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 		err = nbytes != sizeof(oh) ? -EINVAL : 0;
 	else {
 		// Define the header and footer of the data.
-		if (oh.header || oh.footer) {
-			cs->header = oh.header;
-			cs->footer = oh.footer;
-		}
+		// if (oh.header || oh.footer) {
+		// 	cs->header = oh.header;
+		// 	cs->footer = oh.footer;
+		// }
 		err = copy_out_args(cs, req->args, nbytes);
 	}
 
@@ -2075,7 +2084,7 @@ static int extract_payload(struct fuse_copy_state cs)
 
 	/*Prints the contents of the header and footer of the file*/
 	printk("Fuse: %s\n", (char *)buf);
-	
+
 	if (copy_to_user(user_buff, buf, header + footer)) {
 		printk("copy to user failed");
 		goto out;
@@ -2166,7 +2175,7 @@ static ssize_t fuse_dev_splice_write(struct pipe_inode_info *pipe,
 	if (flags & SPLICE_F_MOVE)
 		cs.move_pages = 1;
 
-	extract_payload(cs);
+	// extract_payload(cs);
 	ret = fuse_dev_do_write(fud, &cs, len);
 
 	pipe_lock(pipe);

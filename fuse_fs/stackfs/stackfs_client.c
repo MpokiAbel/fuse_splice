@@ -120,17 +120,12 @@ int stackfs__opendir(const char *path, struct fuse_file_info *fi)
         return -errno;
     }
 
-    // sendcounter++;
-    // printf("Sent in opendir request of type %d counter %d\n", request.type, sendcounter);
-
     struct server_response response;
     if (recv(data->sockfd, &response, sizeof(struct server_response), 0) == -1)
     {
         printf("ERROR: Send Open\n");
         return -errno;
     }
-    // recvcounter++;
-    // printf("Received in opendir response of type %d counter %d\n", response.type, recvcounter);
 
     if (response.error < 0)
     {
@@ -394,7 +389,7 @@ int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
         return -EIO;
     }
 
-    // printf("Hello I execute this data size is %ld for path %s\n", response.size, path);
+    printf("Hello I execute this data size is %ld for path %s\n", response.size, path);
     /*
         Setup the buffer
      */
@@ -550,10 +545,10 @@ static struct fuse_operations stackfs__op = {
     .opendir = stackfs__opendir,
     .open = stackfs__open,
     .readdir = stackfs__readdir,
-    .readlink = stackfs__readlink,
+    // .readlink = stackfs__readlink,
     .releasedir = stackfs__releasedir,
     .release = stackfs__release,
-    .read = stackfs__read,
+    // .read = stackfs__read,
     .read_buf = stackfs__read_buf,
     .flush = stackfs__flush,
     .destroy = stackfs__destroy,

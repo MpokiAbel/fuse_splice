@@ -10,12 +10,13 @@
 #include <sys/sendfile.h>
 #include "socket.h"
 
-const char *base_dir = "/home/mpokiabel/Documents/fuse/root";
+int counter;
+const char *base_dir = "/home/mpokiabel/Documents/fuse/fuse_fs/tests_files";
 static void
 handle_getattr(int connfd, const char *path)
 {
     struct server_response response = {0};
-
+    printf("GETATTR\n");
     if (lstat(path, &response.stat) < 0)
     {
         perror("handle_getattr lstat");
@@ -30,6 +31,8 @@ handle_getattr(int connfd, const char *path)
 static void handle_open(int connfd, const char *path, int flags)
 
 {
+    printf("OPEN\n");
+
     struct server_response response = {0};
     response.type = OPEN;
     if ((response.fh = open(path, flags)) == -1)
@@ -44,6 +47,8 @@ static void handle_open(int connfd, const char *path, int flags)
 
 static void handle_opendir(int connfd, const char *path)
 {
+    printf("OPENDIR\n");
+
     struct server_response response = {0};
     DIR *dir = opendir(path);
     response.fh = (uint64_t)dir;
@@ -60,6 +65,8 @@ static void handle_opendir(int connfd, const char *path)
 
 static void handle_readdir(int connfd, const char *path, uint64_t fh, int flags)
 {
+    printf("READDIR\n");
+
     DIR *dir = (DIR *)fh;
     struct dirent *de;
     struct server_response response = {0};
@@ -88,6 +95,8 @@ static void handle_readdir(int connfd, const char *path, uint64_t fh, int flags)
 
 static void handle_readlink(int connfd, const char *path, size_t size)
 {
+    printf("READLINK\n");
+
     char buff[size];
     int ret = readlink(path, buff, size - 1);
     buff[ret] = '\0';
@@ -97,6 +106,8 @@ static void handle_readlink(int connfd, const char *path, size_t size)
 
 static void handle_releasedir(int connfd, uint64_t fh)
 {
+    printf("RELEASEDIR\n");
+
     DIR *dir = (DIR *)(uintptr_t)fh;
     closedir(dir);
 }
@@ -106,12 +117,13 @@ static int send_file(int fd, int sockfd, off_t off, struct server_response *resp
 
     int error;
     int buf_size = response->size + sizeof(struct server_response);
-    response->type = READ;
+
     char *buf = (char *)malloc(buf_size);
     bzero(buf, buf_size);
+    printf("Error %d\n", errno);
 
     error = pread(fd, buf + sizeof(struct server_response), response->size, off);
-
+    printf("Error %d\n", errno);
     response->error = error > 0 ? 0 : error;
     response->size = error < 0 ? 0 : error;
 
@@ -129,17 +141,32 @@ static int send_file(int fd, int sockfd, off_t off, struct server_response *resp
 
 static void handle_read(int connfd, const char *path, uint64_t fh, int flags, size_t size, off_t off)
 {
+    printf("READ\n");
+    int error;
     struct server_response response = {0};
+    struct stat stat;
+
+    error = fstat(fh, &stat);
+
+    size = stat.st_size > size ? size : stat.st_size;
 
     response.size = size;
+    response.type = READ;
+    response.error = error;
     strcpy(response.path, path);
-    send_file(fh, connfd, off, &response);
+
+    send(connfd, &response, sizeof(struct server_response), 0);
+
+    sendfile(connfd, fh, NULL, size);
+
+    // send_file(fh, connfd, off, &response);
 
     printf("offset %ld, size %ld, data to read %ld error %d\n", off, size, response.size, errno);
 }
 
 static void handle_access(int connfd, const char *path, int mask)
 {
+    printf("ACCESS\n");
 
     struct server_response response = {0};
     response.type = ACCESS;
@@ -161,6 +188,7 @@ static void handle_release(int connfd, const char *path, uint64_t fh)
 
 static void handle_flush(int connfd, const char *path, uint64_t fh)
 {
+    printf("FLUSH\n");
 
     (void)path;
     struct server_response response = {0};
@@ -175,12 +203,11 @@ static void handle_flush(int connfd, const char *path, uint64_t fh)
 }
 
 static void handle_request(int connfd, struct requests *request)
-
 {
+    printf("REQUEST %d\n", request->type);
     char path[256];
     strcpy(path, request->path);
     sprintf(request->path, "%s%s", base_dir, path);
-
     switch (request->type)
     {
     case GETATTR:
@@ -236,6 +263,7 @@ static void handle_request(int connfd, struct requests *request)
 int main(int argc, char const *argv[])
 {
     int sockfd = do_server_connect();
+    counter = 0;
     printf("Server started .....\n");
     // ToDo: make it accept multiple requests i.e connections
 
@@ -254,7 +282,7 @@ int main(int argc, char const *argv[])
         printf("Accepted the connection\n");
         while (1)
         {
-            // sleep(5);
+            printf("Wait to receive %d\n", counter++);
             if (recv(connfd, &recv_request, sizeof(struct requests), 0) <= 0)
             {
                 perror("recv");
