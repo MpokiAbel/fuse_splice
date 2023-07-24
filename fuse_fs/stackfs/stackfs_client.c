@@ -318,8 +318,6 @@ int stackfs__access(const char *path, int mask)
         printf("ERROR: Send access\n");
         return -errno;
     }
-    // sendcounter++;
-    // printf("Sent in access request of type %d counter %d\n", request.type, sendcounter);
 
     struct server_response response;
     if (recv(data->sockfd, &response, sizeof(struct server_response), 0) < 0)
@@ -327,8 +325,6 @@ int stackfs__access(const char *path, int mask)
         printf("ERROR: Receive access\n");
         return -errno;
     }
-    // recvcounter++;
-    // printf("Received in Access response of type %d counter %d\n", response.type, recvcounter);
     if (response.error < 0)
     {
         printf("ERROR: Other Access\n");
