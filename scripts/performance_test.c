@@ -7,15 +7,15 @@
 #include <sys/time.h>
 
 int main()
-{   
+{
     FILE *file;
-    char command[100];
+    // char command[100];
     struct timeval start, end;
     double elapsed_time;
     struct stat statbuf;
 
     // Specify the file to be read
-    const char *filename = "/home/mpokiabel/Documents/fuse/fuse_fs/mnt/file_1.out";
+    const char *filename = "/home/mpokiabel/Documents/fuse/fuse_fs/mnt/home/mpokiabel/Documents/fuse/fuse_fs/tests_files/file_1048576.0KB.out";
     int fd = open(filename, O_RDONLY);
     int error = stat(filename, &statbuf);
 
@@ -57,5 +57,6 @@ int main()
     printf("Read operation took %.2f milliseconds.\n", elapsed_time);
 
     free(buf);
+    close(fd);
     return 0;
 }

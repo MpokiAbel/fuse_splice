@@ -20,7 +20,7 @@ handle_getattr(int connfd, const char *path)
     if (lstat(path, &response.stat) < 0)
     {
         perror("handle_getattr lstat");
-        response.error = -errno;
+        response.error = errno;
     }
 
     response.type = GETATTR;
@@ -112,32 +112,32 @@ static void handle_releasedir(int connfd, uint64_t fh)
     closedir(dir);
 }
 
-static int send_file(int fd, int sockfd, off_t off, struct server_response *response)
-{
+// static int send_file(int fd, int sockfd, off_t off, struct server_response *response)
+// {
 
-    int error;
-    int buf_size = response->size + sizeof(struct server_response);
+//     int error;
+//     int buf_size = response->size + sizeof(struct server_response);
 
-    char *buf = (char *)malloc(buf_size);
-    bzero(buf, buf_size);
-    printf("Error %d\n", errno);
+//     char *buf = (char *)malloc(buf_size);
+//     bzero(buf, buf_size);
+//     printf("Error %d\n", errno);
 
-    error = pread(fd, buf + sizeof(struct server_response), response->size, off);
-    printf("Error %d\n", errno);
-    response->error = error > 0 ? 0 : error;
-    response->size = error < 0 ? 0 : error;
+//     error = pread(fd, buf + sizeof(struct server_response), response->size, off);
+//     printf("Error %d\n", errno);
+//     response->error = error > 0 ? 0 : error;
+//     response->size = error < 0 ? 0 : error;
 
-    memcpy(buf, response, sizeof(struct server_response));
-    // Send only when there is something to send
-    if (error)
-        error = send(sockfd, buf, buf_size, 0);
+//     memcpy(buf, response, sizeof(struct server_response));
+//     // Send only when there is something to send
+//     if (error)
+//         error = send(sockfd, buf, buf_size, 0);
 
-    if (error == -1)
-        perror("send_file send");
+//     if (error == -1)
+//         perror("send_file send");
 
-    free(buf);
-    return error;
-}
+//     free(buf);
+//     return error;
+// }
 
 static void handle_read(int connfd, const char *path, uint64_t fh, int flags, size_t size, off_t off)
 {
@@ -148,20 +148,30 @@ static void handle_read(int connfd, const char *path, uint64_t fh, int flags, si
 
     error = fstat(fh, &stat);
 
-    size = stat.st_size > size ? size : stat.st_size;
+    if (off >= stat.st_size)
+    {
+        response.size = 0;
+        response.type = READ;
+        response.error = -1;
+        strcpy(response.path, path);
+        send(connfd, &response, sizeof(struct server_response), 0);
+
+        return;
+    }
+
+    else if (off + size > stat.st_size)
+        size = stat.st_size - off;
 
     response.size = size;
     response.type = READ;
     response.error = error;
     strcpy(response.path, path);
 
+    printf("offset %ld, size %ld, data to read %ld error %d\n", off, size, response.size, errno);
+
     send(connfd, &response, sizeof(struct server_response), 0);
 
-    sendfile(connfd, fh, NULL, size);
-
-    // send_file(fh, connfd, off, &response);
-
-    printf("offset %ld, size %ld, data to read %ld error %d\n", off, size, response.size, errno);
+    sendfile(connfd, fh, &off, size);
 }
 
 static void handle_access(int connfd, const char *path, int mask)

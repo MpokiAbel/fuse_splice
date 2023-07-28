@@ -20,38 +20,55 @@ struct stackfs_data
     int sockfd;
 };
 
-int stackfs__getattr(const char *path, struct stat *stat, struct fuse_file_info *fi)
+static int make_connection(int req_type, const char *path, struct stackfs_data *data, struct server_response *response)
 {
-    (void)fi;
-
-#ifdef ENABLE_REMOTE
-    struct stackfs_data *data = (struct stackfs_data *)fuse_get_context()->private_data;
-
     struct requests request;
-    struct server_response response;
 
+    printf("Make connection 1 \n");
     strcpy(request.path, path);
-    request.type = GETATTR;
+    request.type = req_type;
+    printf("Make connection 2 \n");
 
     if (send(data->sockfd, &request, sizeof(struct requests), 0) == -1)
     {
         printf("ERROR: Send Getattr\n");
         return -errno;
     }
+    printf("Make connection 3 \n");
 
-    if (recv(data->sockfd, &response, sizeof(struct server_response), 0) == -1)
+    if (recv(data->sockfd, response, sizeof(struct server_response), 0) == -1)
     {
         printf("ERROR: Receive Getattr\n");
         return -errno;
     }
+    printf("Make connection 4 \n");
 
-    if (response.error < 0)
+    if (response->error < 0)
     {
         printf("ERROR: Other Getattr\n");
-        return response.error;
+        return -response->error;
     }
+    printf("Make connection 5 \n");
+
+    return 0;
+}
+
+int stackfs__getattr(const char *path, struct stat *stat, struct fuse_file_info *fi)
+{
+    (void)fi;
+
+#ifdef ENABLE_REMOTE
+    struct stackfs_data *data = (struct stackfs_data *)fuse_get_context()->private_data;
+    struct server_response response = {0};
+    int error = 0;
+
+    error = make_connection(GETATTR, path, data, &response);
+
+    if (error != 0)
+        return error;
 
     *stat = response.stat;
+    printf("File size is %ld \n", stat->st_size);
 
 #else
     if (lstat(path, stat) == -1)
@@ -397,11 +414,12 @@ int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
     buf->buf[0].footer = 102;
 
     // Define FUSE_BUF_FD_SECTION and Pass the FD to splice
-    buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_SECTION;
+    buf->buf[0].flags |= FUSE_BUF_IS_FD;
     buf->buf[0].fd = data->sockfd;
     *bufp = buf;
 
 #else
+    printf("Size to read is %ld kb\n", size / 1024);
 
     struct fuse_bufvec *buf = (struct fuse_bufvec *)malloc(sizeof(struct fuse_bufvec));
     *buf = FUSE_BUFVEC_INIT(size);
@@ -503,7 +521,7 @@ int stackfs__read(const char *path, char *buf, size_t size, off_t off,
     if (recv(data->sockfd, &response, sizeof(struct server_response), 0) == -1)
         return -errno;
 
-    if (response.error == -1)
+    if (response.error < 0)
         return -EIO;
 
     size_t res;
@@ -526,6 +544,7 @@ int stackfs__read(const char *path, char *buf, size_t size, off_t off,
 #else
     int res;
 
+    printf("Size to read is %ld kb\n", size / 1024);
     (void)path;
     res = pread(fi->fh, buf, size, off);
     if (res == -1)
@@ -536,7 +555,7 @@ int stackfs__read(const char *path, char *buf, size_t size, off_t off,
 
 static struct fuse_operations stackfs__op = {
     .init = stackfs__init,
-    .access = stackfs__access,
+    // .access = stackfs__access,
     .getattr = stackfs__getattr,
     .opendir = stackfs__opendir,
     .open = stackfs__open,
@@ -544,8 +563,8 @@ static struct fuse_operations stackfs__op = {
     // .readlink = stackfs__readlink,
     .releasedir = stackfs__releasedir,
     .release = stackfs__release,
-    // .read = stackfs__read,
-    .read_buf = stackfs__read_buf,
+    .read = stackfs__read,
+    // .read_buf = stackfs__read_buf,
     .flush = stackfs__flush,
     .destroy = stackfs__destroy,
 };
