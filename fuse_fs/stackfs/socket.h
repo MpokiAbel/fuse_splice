@@ -2,7 +2,7 @@
 #include <arpa/inet.h>
 #include <sys/stat.h>
 
-// #define ENABLE_REMOTE 1
+#define ENABLE_REMOTE 1
 #define SERVER_PORT 9000
 
 // Request Sent

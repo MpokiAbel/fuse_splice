@@ -414,7 +414,7 @@ int stackfs__read_buf(const char *path, struct fuse_bufvec **bufp,
     buf->buf[0].footer = 102;
 
     // Define FUSE_BUF_FD_SECTION and Pass the FD to splice
-    buf->buf[0].flags |= FUSE_BUF_IS_FD;
+    buf->buf[0].flags |= FUSE_BUF_IS_FD | FUSE_BUF_FD_SECTION;
     buf->buf[0].fd = data->sockfd;
     *bufp = buf;
 
@@ -560,11 +560,11 @@ static struct fuse_operations stackfs__op = {
     .opendir = stackfs__opendir,
     .open = stackfs__open,
     .readdir = stackfs__readdir,
-    // .readlink = stackfs__readlink,
+    .readlink = stackfs__readlink,
     .releasedir = stackfs__releasedir,
     .release = stackfs__release,
-    .read = stackfs__read,
-    // .read_buf = stackfs__read_buf,
+    // .read = stackfs__read,
+    .read_buf = stackfs__read_buf,
     .flush = stackfs__flush,
     .destroy = stackfs__destroy,
 };
