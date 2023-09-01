@@ -972,6 +972,8 @@ static void fuse_readahead(struct readahead_control *rac)
 	if (fuse_is_bad(inode))
 		return;
 
+	printk("FUSE: fuse readahead functionality \n");
+
 	max_pages =
 		min_t(unsigned int, fc->max_pages, fc->max_read / PAGE_SIZE);
 
@@ -1017,6 +1019,8 @@ static ssize_t fuse_cache_read_iter(struct kiocb *iocb, struct iov_iter *to)
 	 * Otherwise, only update if we attempt to read past EOF (to ensure
 	 * i_size is up to date).
 	 */
+	// printk("Generic_file_read_iter fuse_cache_read_iter 1\n");
+
 	if (fc->auto_inval_data ||
 	    (iocb->ki_pos + iov_iter_count(to) > i_size_read(inode))) {
 		int err;
@@ -1025,6 +1029,7 @@ static ssize_t fuse_cache_read_iter(struct kiocb *iocb, struct iov_iter *to)
 			return err;
 	}
 
+	// printk("Generic_file_read_iter fuse_cache_read_iter 2\n");
 	return generic_file_read_iter(iocb, to);
 }
 
@@ -1586,22 +1591,29 @@ static ssize_t fuse_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 	struct file *file = iocb->ki_filp;
 	struct fuse_file *ff = file->private_data;
 	struct inode *inode = file_inode(file);
+	ssize_t ret_size = 0;
+
+	printk("In Fuse file size %ld and position is %lld\n", to->count,
+	       iocb->ki_pos);
 
 	if (fuse_is_bad(inode))
 		return -EIO;
 
 	if (FUSE_IS_DAX(inode)) {
-		// printk("Performing DAX\n");
+		printk("Performing DAX \n");
 		return fuse_dax_read_iter(iocb, to);
 	}
 
 	if (!(ff->open_flags & FOPEN_DIRECT_IO)) {
-		// printk("Performing cache read iter\n");
-		return fuse_cache_read_iter(iocb, to);
+		// printk("Performing cache read iter not FOPEN_DIRECT_IO \n");
+
+		ret_size = fuse_cache_read_iter(iocb, to);
+		// printk("The size is %ld\n", ret_size);
+		return ret_size;
 	}
 
 	else {
-		// printk("Performing direct read iter \n");
+		printk("Performing direct read iter \n");
 		return fuse_direct_read_iter(iocb, to);
 	}
 }

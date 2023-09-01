@@ -965,47 +965,73 @@ static int fuse_copy_page(struct fuse_copy_state *cs, struct page **pagep,
 	return 0;
 }
 
-static int fuse_split_payload(struct fuse_args_pages *ap, unsigned header,
-			      unsigned footer, unsigned nbytes)
+static int fuse_split_payload(struct fuse_args_pages *ap, struct fuse_req *req,
+			      unsigned nbytes)
 {
-	struct page *temp_page = alloc_page(GFP_KERNEL);
-	void *temp_page_mem = kmap_local_page(temp_page);
-	int offset_1;
-	int offset_2;
-	int size_to_read;
+	struct page *temp_page;
+	void *temp_page_mem;
+	void *kernel_buf;
+	void *user_buf = (void *)req->out.h.mem;
+	unsigned offset_1, offset_2, size_to_read;
 	void *page1;
 	void *page2;
+	int err;
 
-	for (int i = 0; i < ap->num_pages - 1; i++) {
-		offset_1 = ap->descs[i].offset;
-		offset_2 = ap->descs[i + 1].offset;
-		size_to_read = ap->descs[i].length - header;
+	unsigned header = req->out.h.header;
+	unsigned footer = req->out.h.footer;
 
-		page1 = kmap_local_page(ap->pages[i]);
-		page2 = kmap_local_page(ap->pages[i + 1]);
+	if (header > 0 || footer > 0) {
+		temp_page = alloc_page(GFP_KERNEL);
+		temp_page_mem = kmap_local_page(temp_page);
+		kernel_buf = kzalloc(header + footer, GFP_KERNEL);
 
-		memcpy(temp_page_mem, page1 + header + offset_1, size_to_read);
-		memcpy(temp_page_mem + size_to_read, page2 + offset_2, header);
-		memcpy(page1 + offset_1, temp_page_mem, PAGE_SIZE);
+		for (int i = 0; i < ap->num_pages - 1; i++) {
+			offset_1 = ap->descs[i].offset;
+			offset_2 = ap->descs[i + 1].offset;
+			size_to_read = ap->descs[i].length - header;
 
-		kunmap_local(page1);
-		kunmap_local(page2);
+			page1 = kmap_local_page(ap->pages[i]) + offset_1;
+			page2 = kmap_local_page(ap->pages[i + 1]) + offset_2;
+
+			if (i == 0)
+				memcpy(kernel_buf, page1, header);
+
+			// memcpy(temp_page_mem, page1 + header, size_to_read);
+			// memcpy(temp_page_mem + size_to_read, page2, header);
+			// memcpy(page1, temp_page_mem, PAGE_SIZE);
+
+			if (i == ap->num_pages - 2) {
+				size_to_read = nbytes - header - footer;
+
+				memcpy(kernel_buf + header,
+				       page2 + nbytes - footer, footer);
+
+				// memset(temp_page_mem, 0, PAGE_SIZE);
+
+				// memcpy(temp_page_mem, page2 + header,
+				//        size_to_read);
+
+				// memcpy(page2, temp_page_mem, PAGE_SIZE);
+			}
+
+			kunmap_local(page1);
+			kunmap_local(page2);
+		}
+		if (user_buf != NULL) {
+			err = copy_to_user(user_buf, kernel_buf,
+					   header + footer);
+
+			// printk("FUSE: %s\n", (char *)kernel_buf);
+			if (err != 0) {
+				printk("Failed to copy to user \n");
+			}
+		}
+
+		kunmap_local(temp_page_mem);
+		__free_page(temp_page);
+		kfree(kernel_buf);
 	}
 
-	//deal with the last page.
-	offset_1 = ap->descs[ap->num_pages - 1].offset;
-	page1 = kmap_local_page(ap->pages[ap->num_pages - 1]);
-	size_to_read = nbytes - header - footer;
-
-	printk("offset %d, size to read %d\n", offset_1, size_to_read);
-	memset(temp_page_mem, 0, PAGE_SIZE);
-	memcpy(temp_page_mem, page1 + header + offset_1, size_to_read);
-	memset(page1 + offset_1, 0, ap->descs[ap->num_pages - 1].length);
-	memcpy(page1 + offset_1, temp_page_mem, PAGE_SIZE);
-
-	kunmap_local(page1);
-	kunmap_local(temp_page_mem);
-	__free_page(temp_page);
 	return 0;
 }
 
@@ -1016,21 +1042,9 @@ static int fuse_copy_pages(struct fuse_copy_state *cs, unsigned nbytes,
 	unsigned i;
 	struct fuse_req *req = cs->req;
 	struct fuse_args_pages *ap = container_of(req->args, typeof(*ap), args);
-	unsigned last_bytes = 0;
-	unsigned header = req->out.h.header;
-	unsigned footer = req->out.h.footer;
-	// unsigned len = req->out.h.len - sizeof(struct fuse_out_header);
-	// unsigned size_rem = nbytes - len;
-	// unsigned last_bytes = ap->descs[ap->num_pages - 1].length - size_rem;
-
-	// if (header || footer) {
-	// 	printk("Data Size %d, Empty Space %d, Last Bytes %d \n", len,
-	// 	       size_rem, last_bytes);
-	// 	// fuse_split_payload(ap, header, footer, last_bytes);
-	// }
-
+	int last_bytes = 0;
+	int err;
 	for (i = 0; i < ap->num_pages && (nbytes || zeroing); i++) {
-		int err;
 		unsigned int offset = ap->descs[i].offset;
 		unsigned int count = min(nbytes, ap->descs[i].length);
 
@@ -1043,11 +1057,9 @@ static int fuse_copy_pages(struct fuse_copy_state *cs, unsigned nbytes,
 		nbytes -= count;
 	}
 
-	if (header || footer) {
-		// printk("Last Bytes %d \n", last_bytes);
-		fuse_split_payload(ap, header, footer, last_bytes);
-	}
-
+	err = fuse_split_payload(ap, req, last_bytes);
+	if (err)
+		return err;
 	return 0;
 }
 
@@ -2018,85 +2030,6 @@ static ssize_t fuse_dev_write(struct kiocb *iocb, struct iov_iter *from)
 	return fuse_dev_do_write(fud, &cs, iov_iter_count(from));
 }
 
-// This should be used when the lock is hold
-static int extract_payload(struct fuse_copy_state cs)
-{
-	int err;
-	size_t header = 0;
-	size_t footer = 0;
-	unsigned offset;
-	// struct pipe_buffer *pr_buff = cs.pipebufs;
-	struct pipe_buffer *de_bufs = NULL;
-	struct fuse_copy_state mcs;
-	struct fuse_out_header oh;
-	void *user_buff;
-	void *buf;
-
-	/* 	Fetch the Fuse Out header, this is needed because we need 
-		to modify the length of data to be read */
-
-	err = fuse_copy_one(&cs, &oh, sizeof(oh));
-	if (err) {
-		fuse_copy_finish(&cs);
-		return -1;
-	}
-
-	header = oh.header;
-	footer = oh.footer;
-
-	if (!header || !footer)
-		return -1;
-
-	buf = kmalloc(header + footer, GFP_KERNEL);
-
-	user_buff = (void *)oh.mem;
-	printk("Header Size %ld, Footer Size %ld\n", header, footer);
-
-	//Fetch the header of the message
-	err = fuse_copy_one(&cs, buf, header);
-	if (err) {
-		fuse_copy_finish(&cs);
-		return -1;
-	}
-
-	/*	Get the address of the last buffer in the Ring and check 
-		if it contains data more than or equal to footer size */
-
-	de_bufs = cs.pipebufs + cs.nr_segs - 1;
-
-	if (de_bufs->len < footer)
-		return -1;
-
-	/*	Copy data from the last pipe buffer , 
-		This requires proper setting of the offset in the pipe buffers*/
-	fuse_copy_init(&mcs, 0, NULL);
-	offset = de_bufs->offset;
-	de_bufs->offset = offset + (de_bufs->len - footer);
-	mcs.pipebufs = de_bufs;
-	mcs.nr_segs = 1;
-
-	//Fetch the footer of the message
-	err = fuse_copy_one(&mcs, buf + header, footer);
-	if (err) {
-		fuse_copy_finish(&mcs);
-		return -1;
-	}
-
-	/*Prints the contents of the header and footer of the file*/
-	printk("Fuse: %s\n", (char *)buf);
-
-	if (copy_to_user(user_buff, buf, header + footer)) {
-		printk("copy to user failed");
-		goto out;
-	}
-
-out:
-	de_bufs->offset = offset;
-	kfree(buf);
-
-	return 0;
-}
-
 static ssize_t fuse_dev_splice_write(struct pipe_inode_info *pipe,
 				     struct file *out, loff_t *ppos, size_t len,
 				     unsigned int flags)
@@ -2175,7 +2108,6 @@ static ssize_t fuse_dev_splice_write(struct pipe_inode_info *pipe,
 	if (flags & SPLICE_F_MOVE)
 		cs.move_pages = 1;
 
-	// extract_payload(cs);
 	ret = fuse_dev_do_write(fud, &cs, len);
 
 	pipe_lock(pipe);
