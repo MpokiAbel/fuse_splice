@@ -30,3 +30,4 @@ fuse_module/libfuse/GSYMS
 fuse_module/libfuse/GTAGS
 fuse_module/libfuse/test/test_setattr
 fuse_module/libfuse/build
+.vscode
